@@ -122,7 +122,7 @@ func NewStore(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
 	}
-	s := &Store{dir: dir, config: Config{Interval: 5, Profiles: []Profile{}, Machines: []Machine{}}}
+	s := &Store{dir: dir, config: Config{Interval: 4, Profiles: []Profile{}, Machines: []Machine{}}}
 	keyPath := filepath.Join(dir, "vault.key")
 	key, err := os.ReadFile(keyPath)
 	if os.IsNotExist(err) {

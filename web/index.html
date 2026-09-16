@@ -9,16 +9,17 @@
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="/" aria-label="simpleHtmlWatch 首页"><span class="brand-icon">⌁</span><strong>simpleHtmlWatch<span class="brand-sub">BARE METAL, IN SIGHT.</span></strong></a>
-    <div class="top-actions"><span class="local"><i></i>本机运行 · SSH 直连</span><button id="settings-btn">⚙ 管理机器</button><button id="fullscreen-btn" title="进入全屏，按 Esc 退出">⛶ 全屏</button></div>
+    <a class="brand" href="/" aria-label="simpleHtmlWatch 首页"><span class="brand-icon">⌁</span><strong>simpleHtmlWatch</strong></a>
+    <span id="demo-tag" class="demo-tag" hidden>演示</span>
+    <div class="summary" aria-label="机器统计"><span title="已配置"><b id="total">00</b> 台</span><span class="green" title="运行正常"><b id="online">00</b> 正常</span><span title="需要关注"><b id="attention">00</b> 关注</span></div>
+    <div class="toolbar" role="region" aria-label="监控工具栏">
+      <div class="tabs" id="view-tabs"><button data-view="npu" class="active">NPU 状态</button><button data-view="python">Python 进程</button><button data-view="usage">CPU / 内存</button></div>
+      <div class="filters"><input id="search" type="search" placeholder="名称 / IP" aria-label="搜索机器"><select id="group-filter" aria-label="机器分组"><option value="">所有分组</option></select><select id="layout" aria-label="同屏台数"><option value="2">2 台 / 屏</option><option value="4">4 台 / 屏</option><option value="8">8 台 / 屏</option><option value="16" selected>16 台 / 屏</option></select><button id="refresh-btn" title="立即采集" aria-label="立即采集">↻</button><button id="pause-btn" title="暂停本页面显示更新，后台继续采集">Ⅱ 暂停</button></div>
+    </div>
+    <div class="top-actions"><button id="settings-btn">⚙ 管理机器</button><button id="fullscreen-btn" title="进入全屏，按 Esc 退出">⛶ 全屏</button></div>
   </header>
   <main>
-    <section class="page-heading"><div><div class="eyebrow">WORKSPACE / OVERVIEW</div><h1>机器监控<span id="demo-tag" class="demo-tag" hidden>演示数据</span></h1><p>所有机器，一个视野。</p></div><div class="summary"><div><b id="total">00</b><span>已配置</span></div><div><b id="online" class="green">00</b><span>运行正常</span></div><div><b id="attention">00</b><span>需要关注</span></div></div></section>
     <div id="connection-error" class="notice" hidden></div>
-    <section class="toolbar" aria-label="监控工具栏">
-      <div class="tabs" id="view-tabs"><button data-view="npu" class="active">NPU 状态</button><button data-view="python">Python 进程</button><button data-view="usage">CPU / 内存</button></div>
-      <div class="filters"><input id="search" type="search" placeholder="搜索名称 / IP" aria-label="搜索机器"><select id="group-filter" aria-label="机器分组"><option value="">所有分组</option></select><select id="layout" aria-label="同屏台数"><option value="2">2 台 / 屏</option><option value="4">4 台 / 屏</option><option value="8">8 台 / 屏</option><option value="16" selected>16 台 / 屏</option></select><button id="refresh-btn" title="立即采集">↻ 刷新</button><button id="pause-btn" title="暂停本页面显示更新，后台继续采集">Ⅱ 暂停显示</button></div>
-    </section>
     <section id="empty" class="empty" hidden><span class="empty-icon">⌁</span><div class="eyebrow">YOUR MACHINES. YOUR VIEW.</div><h2>把终端里的机器，放到同一个页面。</h2><p>创建一组共享凭据，添加机器，就能开始监控。<br>无需远程安装组件，最多 16 台同屏。</p><div><button id="empty-add" class="primary">＋ 添加第一台机器</button><button id="demo-btn">体验 16 台演示</button></div><div class="setup-steps"><span><b>01</b> 保存共享凭据</span><span><b>02</b> 批量添加机器</span><span><b>03</b> 确认指纹，开始监控</span></div></section>
     <section id="grid" class="machine-grid" aria-label="机器监控卡片"></section>
     <footer><span id="live-status"><i></i> 自动刷新</span><span id="page-info"></span><div><button id="prev-btn" aria-label="上一页">←</button><button id="next-btn" aria-label="下一页">→</button><button id="exit-demo" hidden>退出演示</button></div></footer>
@@ -27,7 +28,7 @@
     <form id="settings-form"><div class="dialog-heading"><div><div class="eyebrow">WORKSPACE SETTINGS</div><h2>管理机器与共享凭据</h2></div><button type="button" data-close="settings-dialog" aria-label="关闭设置">✕</button></div>
       <div class="settings-body"><div class="section-title"><div><h3>01 / 共享凭据</h3><p>同一用户名和密码只保存一次；机器引用后自动复用。</p></div><button type="button" id="add-profile">＋ 新增凭据</button></div><div id="profiles-editor"></div>
       <div class="section-title"><div><h3>02 / 机器列表</h3><p>支持 IP、主机名和自定义 SSH 端口。每屏最多展示 16 台。</p></div><div><button type="button" id="batch-btn">批量添加</button><button type="button" id="add-machine">＋ 添加机器</button></div></div><div id="machines-editor"></div>
-      <div class="section-title"><div><h3>03 / 刷新设置</h3><p>保留 SSH 连接，复用会话定期执行监控命令。</p></div><label>间隔 <input id="interval" type="number" min="3" max="3600" value="5" required> 秒</label></div>
+      <div class="section-title"><div><h3>03 / 刷新设置</h3><p>保留 SSH 连接，复用会话定期执行监控命令。</p></div><label>间隔 <input id="interval" type="number" min="3" max="3600" value="4" required> 秒</label></div>
       <p class="privacy-note">密码以加密配置保存在本机。密钥也位于本机配置目录，请妥善保管该目录；导出配置不会包含密码。</p></div>
       <div id="settings-error" class="form-error" role="alert"></div><div class="dialog-footer"><div><button type="button" id="export-btn">导出无密码配置</button><button type="button" id="import-btn">导入配置</button><input id="import-file" type="file" accept="application/json,.json" hidden></div><div><button type="button" data-close="settings-dialog">取消</button><button type="submit" id="save-btn" class="primary">保存并开始监控</button></div></div>
     </form>

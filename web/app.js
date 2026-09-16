@@ -4,7 +4,7 @@ const $$ = (s, root = document) => [...root.querySelectorAll(s)];
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uid = () => crypto.randomUUID();
 const token = $('meta[name="watch-token"]').content;
-let config = {machines:[], profiles:[], interval:5}, commands = [], states = {}, view = 'npu', page = 0;
+let config = {machines:[], profiles:[], interval:4}, commands = [], states = {}, view = 'npu', page = 0;
 let paused = false, demo = false, draft, detailID, detailView, trustPending, busy = false, toastTimer;
 let backendOK = true;
 const labels = {online:'正常',partial:'命令异常',offline:'连接失败',untrusted:'待确认指纹',connecting:'连接中',disabled:'已停用'};
@@ -45,7 +45,7 @@ function render() {
     $('#grid').replaceChildren();
     for (const m of visible) {
       const card = document.createElement('article'); card.className = 'machine-card'; card.dataset.id = m.id;
-      card.innerHTML = '<div class="card-head"><span class="card-name"></span><span class="badge"></span></div><div class="card-meta"><span class="host"></span><span class="group"></span></div><pre class="card-output" tabindex="0"></pre><div class="card-foot"><span class="updated"></span><div><button class="trust-action" hidden>核对指纹</button><button class="expand">↗ 放大</button></div></div>';
+      card.innerHTML = '<div class="card-head"><span class="card-name"></span><span class="host"></span><span class="group"></span><span class="badge" tabindex="0"></span><button class="trust-action" title="核对 SSH 主机指纹" hidden>指纹</button><button class="expand" title="放大机器输出" aria-label="放大机器输出">↗</button></div><pre class="card-output" tabindex="0"></pre>';
       $('.expand', card).onclick = () => openDetail(m.id);
       $('.trust-action', card).onclick = () => openTrust(m.id);
       $('#grid').append(card);
@@ -62,7 +62,12 @@ function render() {
     // Keep each terminal's scroll position while replacing its text.
     if (out.textContent !== value) { const top = out.scrollTop, left = out.scrollLeft; out.textContent = value; out.scrollTop = top; out.scrollLeft = left; }
     out.classList.toggle('message', !['online','partial'].includes(s.status));
-    $('.updated', card).textContent = `${time(s.updatedAt)}${s.durationMs != null ? ` · ${s.durationMs} ms` : ''}`;
+    const updated = `${time(s.updatedAt)}${s.durationMs != null ? ` · ${s.durationMs} ms` : ''}`;
+    badge.title = `${labels[s.status] || s.status} · ${updated}`;
+    badge.setAttribute('aria-label', badge.title);
+    $('.card-head', card).title = `${m.name} · ${m.host}:${m.port} · ${m.group || '未分组'} · ${updated}`;
+    $('.host', card).title = `${m.host}:${m.port}`;
+    $('.group', card).title = m.group || '未分组';
     $('.trust-action', card).hidden = s.status !== 'untrusted' || demo;
   }
   $('#page-info').textContent = filtered.length ? `${page * size + 1}–${Math.min((page + 1) * size, filtered.length)} / ${filtered.length} 台 · 第 ${page + 1} / ${Math.ceil(filtered.length / size)} 页` : '0 台机器';
@@ -82,7 +87,7 @@ async function poll() {
 $('#view-tabs').onclick = e => { const b = e.target.closest('[data-view]'); if (!b) return; view = b.dataset.view; $$('#view-tabs button').forEach(el => el.classList.toggle('active', el === b)); render(); };
 for (const id of ['search','group-filter','layout']) $('#' + id).addEventListener(id === 'search' ? 'input' : 'change', () => { page = 0; render(); });
 $('#prev-btn').onclick = () => { page--; render(); }; $('#next-btn').onclick = () => { page++; render(); };
-$('#pause-btn').onclick = () => { paused = !paused; $('#pause-btn').textContent = paused ? '▶ 恢复显示' : 'Ⅱ 暂停显示'; render(); };
+$('#pause-btn').onclick = () => { paused = !paused; $('#pause-btn').textContent = paused ? '▶ 恢复' : 'Ⅱ 暂停'; render(); };
 $('#refresh-btn').onclick = async () => { if (demo) return toast('当前是演示数据'); try { await api('refresh','POST'); toast('已请求刷新'); } catch(e) { toast(e.message); } };
 $('#fullscreen-btn').onclick = async () => { try { if (document.fullscreenElement) await document.exitFullscreen(); else await document.documentElement.requestFullscreen(); } catch(e) { toast('浏览器未允许全屏，请尝试按 F11'); } };
 document.addEventListener('fullscreenchange', () => { $('#fullscreen-btn').textContent = document.fullscreenElement ? '⛶ 退出全屏' : '⛶ 全屏'; $('#fullscreen-btn').setAttribute('aria-pressed', !!document.fullscreenElement); });
@@ -167,7 +172,7 @@ $('#import-file').onchange = async e => {
   } catch(e) { $('#settings-error').textContent = `导入失败：${e.message}`; } finally { e.target.value = ''; }
 };
 function enterDemo() {
-  demo = true; paused = false; $('#pause-btn').textContent = 'Ⅱ 暂停显示'; states = {}; config = {interval:5,profiles:[],machines:[]};
+  demo = true; paused = false; $('#pause-btn').textContent = 'Ⅱ 暂停'; states = {}; config = {interval:4,profiles:[],machines:[]};
   for (let i=1;i<=16;i++) {
     const id = `demo-${i}`, n = String(i).padStart(2,'0'), status = i === 7 ? 'offline' : i === 12 ? 'partial' : 'online';
     config.machines.push({id,name:`ascend-${n}`,host:`192.0.2.${10+i}`,port:22,group:i<9?'训练集群':'开发集群',profileId:'demo',commands:['npu','python','usage'],enabled:true});

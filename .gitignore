@@ -1,0 +1,7 @@
+/dist/
+/simpleHtmlWatch
+/simpleHtmlWatch.exe
+/data/
+*.local.json
+*.log
+.DS_Store

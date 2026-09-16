@@ -129,6 +129,7 @@ type fixture struct {
 	listener      net.Listener
 	signer        ssh.Signer
 	authenticated atomic.Int32
+	firstAuthAt   atomic.Int64
 	connections   atomic.Int32
 	hanging       atomic.Bool
 	stop          chan struct{}
@@ -149,6 +150,7 @@ func newFixture(t *testing.T) *fixture {
 			return nil, fmt.Errorf("bad credentials")
 		}
 		f.authenticated.Add(1)
+		f.firstAuthAt.CompareAndSwap(0, time.Now().UnixNano())
 		return nil, nil
 	}}
 	cfg.AddHostKey(signer)
@@ -288,7 +290,7 @@ func TestSixteenMachinesTrustReuseAndCommandErrors(t *testing.T) {
 	}
 	_, newKey, _ := ed25519.GenerateKey(rand.Reader)
 	changed, _ := ssh.NewSignerFromKey(newKey)
-	err := trust.Callback(s.Address)("", addr, changed.PublicKey())
+	err := trust.Callback(s.Address, false)("", addr, changed.PublicKey())
 	te, ok := err.(*TrustError)
 	if !ok || !te.Changed {
 		t.Fatal("changed host key not blocked")
@@ -299,7 +301,7 @@ func TestTimeoutAndCancellation(t *testing.T) {
 	f.hanging.Store(true)
 	trust, _ := NewTrustStore(t.TempDir())
 	addr := f.listener.Addr().String()
-	_ = trust.Callback(addr)("", f.listener.Addr(), f.signer.PublicKey())
+	_ = trust.Callback(addr, false)("", f.listener.Addr(), f.signer.PublicKey())
 	_ = trust.Accept(addr, ssh.FingerprintSHA256(f.signer.PublicKey()))
 	m := NewMonitor(trust)
 	m.commandTimeout = 100 * time.Millisecond

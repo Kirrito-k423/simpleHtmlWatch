@@ -34,9 +34,10 @@ type Machine struct {
 	Enabled   bool     `json:"enabled"`
 }
 type Config struct {
-	Interval int       `json:"interval"`
-	Profiles []Profile `json:"profiles"`
-	Machines []Machine `json:"machines"`
+	AutoTrustNewKeys bool      `json:"autoTrustNewKeys"`
+	Interval         int       `json:"interval"`
+	Profiles         []Profile `json:"profiles"`
+	Machines         []Machine `json:"machines"`
 }
 type Command struct {
 	ID    string `json:"id"`
@@ -122,7 +123,7 @@ func NewStore(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
 	}
-	s := &Store{dir: dir, config: Config{Interval: 4, Profiles: []Profile{}, Machines: []Machine{}}}
+	s := &Store{dir: dir, config: Config{AutoTrustNewKeys: true, Interval: 4, Profiles: []Profile{}, Machines: []Machine{}}}
 	keyPath := filepath.Join(dir, "vault.key")
 	key, err := os.ReadFile(keyPath)
 	if os.IsNotExist(err) {

@@ -22,16 +22,17 @@ type Result struct {
 	Truncated bool   `json:"truncated"`
 }
 type State struct {
-	MachineID   string    `json:"machineId"`
-	Status      string    `json:"status"`
-	Error       string    `json:"error,omitempty"`
-	UpdatedAt   time.Time `json:"updatedAt"`
-	LastSuccess time.Time `json:"lastSuccess"`
-	DurationMs  int64     `json:"durationMs"`
-	Fingerprint string    `json:"fingerprint,omitempty"`
-	Address     string    `json:"address,omitempty"`
-	KeyChanged  bool      `json:"keyChanged,omitempty"`
-	Results     []Result  `json:"results"`
+	MachineID   string     `json:"machineId"`
+	Status      string     `json:"status"`
+	Error       string     `json:"error,omitempty"`
+	UpdatedAt   time.Time  `json:"updatedAt"`
+	LastSuccess time.Time  `json:"lastSuccess"`
+	DurationMs  int64      `json:"durationMs"`
+	Fingerprint string     `json:"fingerprint,omitempty"`
+	Address     string     `json:"address,omitempty"`
+	KeyChanged  bool       `json:"keyChanged,omitempty"`
+	AutoTrustAt *time.Time `json:"autoTrustAt,omitempty"`
+	Results     []Result   `json:"results"`
 }
 type Monitor struct {
 	mu             sync.RWMutex
@@ -54,6 +55,7 @@ func (m *Monitor) Replace(c Config) {
 		m.cancel()
 	}
 	m.wg.Wait()
+	m.trust.ResetCountdowns()
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 	m.mu.Lock()
@@ -75,7 +77,7 @@ func (m *Monitor) Replace(c Config) {
 		trigger := make(chan struct{}, 1)
 		m.triggers[host.ID] = trigger
 		m.wg.Add(1)
-		go m.worker(ctx, host, profiles[host.ProfileID], time.Duration(c.Interval)*time.Second, trigger)
+		go m.worker(ctx, host, profiles[host.ProfileID], time.Duration(c.Interval)*time.Second, c.AutoTrustNewKeys, trigger)
 	}
 	m.mu.Unlock()
 }
@@ -112,7 +114,7 @@ func (m *Monitor) put(ctx context.Context, s State) {
 		m.states[s.MachineID] = s
 	}
 }
-func (m *Monitor) worker(ctx context.Context, host Machine, profile Profile, interval time.Duration, trigger <-chan struct{}) {
+func (m *Monitor) worker(ctx context.Context, host Machine, profile Profile, interval time.Duration, autoTrust bool, trigger <-chan struct{}) {
 	defer m.wg.Done()
 	var client *ssh.Client
 	var conn net.Conn
@@ -136,7 +138,7 @@ func (m *Monitor) worker(ctx context.Context, host Machine, profile Profile, int
 		addr := net.JoinHostPort(host.Host, strconv.Itoa(host.Port))
 		var err error
 		if client == nil {
-			client, conn, err = dial(ctx, addr, profile, m.trust.Callback(addr))
+			client, conn, err = dial(ctx, addr, profile, m.trust.Callback(addr, autoTrust))
 		}
 		if err == nil {
 			activeConn := conn
@@ -167,6 +169,10 @@ func (m *Monitor) worker(ctx context.Context, host Machine, profile Profile, int
 				s.Fingerprint = trustErr.Fingerprint
 				s.Address = trustErr.Address
 				s.KeyChanged = trustErr.Changed
+				if !trustErr.AutoTrustAt.IsZero() {
+					deadline := trustErr.AutoTrustAt
+					s.AutoTrustAt = &deadline
+				}
 			}
 			if client != nil {
 				client.Close()
@@ -184,7 +190,16 @@ func (m *Monitor) worker(ctx context.Context, host Machine, profile Profile, int
 		s.DurationMs = time.Since(start).Milliseconds()
 		m.put(ctx, s)
 		<-m.slots
-		timer := time.NewTimer(interval)
+		// Retry at the trust deadline even when the sampling interval is much longer.
+		// Waiting does not occupy a connection slot and does not depend on an open browser.
+		wait := interval
+		if s.AutoTrustAt != nil {
+			wait = time.Until(*s.AutoTrustAt)
+			if wait < 0 {
+				wait = 0
+			}
+		}
+		timer := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
 			timer.Stop()

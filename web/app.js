@@ -4,7 +4,7 @@ const $$ = (s, root = document) => [...root.querySelectorAll(s)];
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uid = () => crypto.randomUUID();
 const token = $('meta[name="watch-token"]').content;
-let config = {machines:[], profiles:[], interval:4}, commands = [], states = {}, view = 'npu', page = 0;
+let config = {machines:[], profiles:[], interval:4, autoTrustNewKeys:true}, commands = [], states = {}, view = 'npu', page = 0;
 let paused = false, demo = false, draft, detailID, detailView, trustPending, busy = false, toastTimer;
 let backendOK = true;
 const labels = {online:'正常',partial:'命令异常',offline:'连接失败',untrusted:'待确认指纹',connecting:'连接中',disabled:'已停用'};
@@ -19,8 +19,11 @@ function setGroups() {
   $('#group-filter').value = prev; if (!$('#group-filter').value) $('#group-filter').value = '';
 }
 function time(t) { return !t || t.startsWith('0001') ? '尚未采集' : new Date(t).toLocaleTimeString('zh-CN', {hour12:false}); }
+function autoTrustSeconds(s) { return Math.max(0, Math.ceil((Date.parse(s.autoTrustAt) - Date.now()) / 1000)); }
+function stateLabel(s) { return s.status === 'untrusted' && s.autoTrustAt ? `${autoTrustSeconds(s)}s 后信任` : labels[s.status] || s.status; }
 function textFor(m, s, selected) {
   if (!m.enabled) return '此机器已停用。可在「管理机器」中重新启用。';
+  if (s.status === 'untrusted' && s.autoTrustAt) return `首次连接：${autoTrustSeconds(s)} 秒后自动信任并连接。\n\n${s.fingerprint}\n\n无需点击，浏览器关闭后仍会继续。`;
   if (s.status === 'untrusted') return `${s.keyChanged ? '主机密钥已变化，请重新核对。' : '首次连接，需要确认主机身份。'}\n\n${s.fingerprint}\n\n确认后才会使用 SSH 密码登录。`;
   if (s.status === 'offline') return `连接失败\n${s.error}\n\n将自动重试。最近连接成功：${time(s.lastSuccess)}`;
   if (!m.commands.includes(selected)) return '此机器尚未启用该监控项。\n可在「管理机器」中勾选。';
@@ -55,7 +58,7 @@ function render() {
   for (const card of $$('.machine-card')) {
     const m = config.machines.find(m => m.id === card.dataset.id), s = states[m.id] || {status:'connecting'};
     const name = $('.card-name', card); name.textContent = m.name; name.title = m.name;
-    const badge = $('.badge', card); badge.className = `badge ${s.status}`; badge.textContent = labels[s.status] || s.status;
+    const badge = $('.badge', card); badge.className = `badge ${s.status}`; badge.textContent = stateLabel(s);
     $('.host', card).textContent = `${m.host}:${m.port}`;
     $('.group', card).textContent = m.group || '未分组';
     const out = $('.card-output', card), value = textFor(m, s, view);
@@ -63,7 +66,7 @@ function render() {
     if (out.textContent !== value) { const top = out.scrollTop, left = out.scrollLeft; out.textContent = value; out.scrollTop = top; out.scrollLeft = left; }
     out.classList.toggle('message', !['online','partial'].includes(s.status));
     const updated = `${time(s.updatedAt)}${s.durationMs != null ? ` · ${s.durationMs} ms` : ''}`;
-    badge.title = `${labels[s.status] || s.status} · ${updated}`;
+    badge.title = `${stateLabel(s)} · ${updated}`;
     badge.setAttribute('aria-label', badge.title);
     $('.card-head', card).title = `${m.name} · ${m.host}:${m.port} · ${m.group || '未分组'} · ${updated}`;
     $('.host', card).title = `${m.host}:${m.port}`;
@@ -96,7 +99,7 @@ function openDetail(id) { detailID = id; detailView = view; updateDetail(); $('#
 function updateDetail() {
   const m = config.machines.find(m => m.id === detailID); if (!m) return $('#detail-dialog').close();
   const s = states[m.id] || {status:'connecting'};
-  $('#detail-title').textContent = m.name; $('#detail-subtitle').textContent = `${m.host}:${m.port} · ${labels[s.status]} · ${time(s.updatedAt)}`;
+  $('#detail-title').textContent = m.name; $('#detail-subtitle').textContent = `${m.host}:${m.port} · ${stateLabel(s)} · ${time(s.updatedAt)}`;
   $('#detail-tabs').innerHTML = commands.map(c => `<button data-cmd="${c.id}" class="${detailView === c.id ? 'active' : ''}">${esc(c.name)}</button>`).join('');
   $('#detail-output').textContent = textFor(m,s,detailView);
 }
@@ -112,8 +115,9 @@ function readEditors() {
   for (const row of $$('.profile-row')) { const p = draft.profiles.find(p => p.id === row.dataset.id); $$('[data-field]',row).forEach(el => p[el.dataset.field] = el.value); }
   for (const row of $$('.machine-edit')) { const m = draft.machines.find(m => m.id === row.dataset.id); $$('[data-field]',row).forEach(el => m[el.dataset.field] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? Number(el.value) : el.value.trim()); m.commands = $$('[data-command]:checked',row).map(el => el.dataset.command); }
   draft.interval = Number($('#interval').value);
+  draft.autoTrustNewKeys = $('#auto-trust').checked;
 }
-function openSettings() { draft = structuredClone(config); $('#interval').value = config.interval; $('#settings-error').textContent = ''; renderEditors(); $('#settings-dialog').showModal(); }
+function openSettings() { draft = structuredClone(config); $('#interval').value = config.interval; $('#auto-trust').checked = config.autoTrustNewKeys ?? true; $('#settings-error').textContent = ''; renderEditors(); $('#settings-dialog').showModal(); }
 $('#settings-btn').onclick = openSettings; $('#empty-add').onclick = openSettings;
 $('#settings-dialog').addEventListener('close', () => { draft = undefined; $('#profiles-editor').replaceChildren(); $('#machines-editor').replaceChildren(); $('#import-file').value = ''; });
 $('#add-profile').onclick = () => { readEditors(); draft.profiles.push({id:uid(),name:'',username:'root',password:''}); renderEditors(); $$('.profile-row').at(-1).querySelector('input').focus(); };
@@ -168,11 +172,13 @@ $('#import-file').onchange = async e => {
       seenMachines.add(m.id);
     }
     if (!confirm('导入将替换当前编辑中的列表；保存后生效。继续？')) return;
-    draft = c; $('#interval').value = c.interval; renderEditors(); $('#settings-error').textContent = '已导入。新凭据需填写密码，再保存。';
+    if (c.autoTrustNewKeys !== undefined && typeof c.autoTrustNewKeys !== 'boolean') throw new Error('自动信任选项需为布尔值');
+    c.autoTrustNewKeys ??= true;
+    draft = c; $('#interval').value = c.interval; $('#auto-trust').checked = c.autoTrustNewKeys; renderEditors(); $('#settings-error').textContent = '已导入。新凭据需填写密码，再保存。';
   } catch(e) { $('#settings-error').textContent = `导入失败：${e.message}`; } finally { e.target.value = ''; }
 };
 function enterDemo() {
-  demo = true; paused = false; $('#pause-btn').textContent = 'Ⅱ 暂停'; states = {}; config = {interval:4,profiles:[],machines:[]};
+  demo = true; paused = false; $('#pause-btn').textContent = 'Ⅱ 暂停'; states = {}; config = {interval:4,autoTrustNewKeys:true,profiles:[],machines:[]};
   for (let i=1;i<=16;i++) {
     const id = `demo-${i}`, n = String(i).padStart(2,'0'), status = i === 7 ? 'offline' : i === 12 ? 'partial' : 'online';
     config.machines.push({id,name:`ascend-${n}`,host:`192.0.2.${10+i}`,port:22,group:i<9?'训练集群':'开发集群',profileId:'demo',commands:['npu','python','usage'],enabled:true});

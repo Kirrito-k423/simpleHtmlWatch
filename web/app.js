@@ -7,6 +7,43 @@ const token = $('meta[name="watch-token"]').content;
 let config = {machines:[], profiles:[], interval:4, autoTrustNewKeys:true}, commands = [], states = {}, view = 'npu', page = 0;
 let paused = false, demo = false, draft, detailID, detailView, trustPending, busy = false, toastTimer;
 let backendOK = true;
+const outputAnchors = {'top-left':[0,0], 'top-right':[1,0], center:[0.5,0.5], 'bottom-left':[0,1], 'bottom-right':[1,1]};
+let outputPosition = 'top-left';
+try {
+  const saved = localStorage.getItem('watch.outputPosition');
+  if (Object.hasOwn(outputAnchors, saved)) outputPosition = saved;
+} catch { /* Browser storage may be disabled; the control still works. */ }
+$('#output-position').value = outputPosition;
+const pendingOutputPositions = new Set();
+let positioningFrame = 0;
+function positionOutput(output) {
+  pendingOutputPositions.add(output);
+  if (positioningFrame) return;
+  positioningFrame = requestAnimationFrame(() => {
+    positioningFrame = 0;
+    const [x, y] = outputAnchors[outputPosition];
+    // Measure after layout; keep monospaced tables intact and move only the viewport.
+    for (const el of pendingOutputPositions) {
+      if (!el.isConnected || !el.clientWidth || !el.clientHeight) continue;
+      el.scrollLeft = Math.max(0, el.scrollWidth - el.clientWidth) * x;
+      el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight) * y;
+    }
+    pendingOutputPositions.clear();
+  });
+}
+function positionAllOutputs() {
+  $$('.card-output').forEach(positionOutput);
+  if ($('#detail-dialog').open) positionOutput($('#detail-output'));
+}
+$('#output-position').onchange = () => {
+  outputPosition = $('#output-position').value;
+  try { localStorage.setItem('watch.outputPosition', outputPosition); } catch { /* Optional preference storage. */ }
+  positionAllOutputs();
+};
+const outputResizeObserver = new ResizeObserver(positionAllOutputs);
+outputResizeObserver.observe($('#grid'));
+outputResizeObserver.observe($('#detail-output'));
+window.addEventListener('resize', positionAllOutputs);
 const labels = {online:'正常',partial:'命令异常',offline:'连接失败',untrusted:'待确认指纹',connecting:'连接中',disabled:'已停用'};
 async function api(path, method = 'GET', data) {
   const r = await fetch('/api/' + path, {method, headers:{'X-Watch-Token':token, ...(data ? {'Content-Type':'application/json'} : {})}, body:data ? JSON.stringify(data) : undefined});
@@ -62,9 +99,14 @@ function render() {
     $('.host', card).textContent = `${m.host}:${m.port}`;
     $('.group', card).textContent = m.group || '未分组';
     const out = $('.card-output', card), value = textFor(m, s, view);
-    // Keep each terminal's scroll position while replacing its text.
-    if (out.textContent !== value) { const top = out.scrollTop, left = out.scrollLeft; out.textContent = value; out.scrollTop = top; out.scrollLeft = left; }
-    out.classList.toggle('message', !['online','partial'].includes(s.status));
+    const message = !['online','partial'].includes(s.status);
+    const sample = s.updatedAt || '';
+    const changed = out.textContent !== value || out.dataset.command !== view || out.dataset.sample !== sample || out.classList.contains('message') !== message;
+    if (out.textContent !== value) out.textContent = value;
+    out.dataset.command = view;
+    out.dataset.sample = sample;
+    out.classList.toggle('message', message);
+    if (changed) positionOutput(out);
     const updated = `${time(s.updatedAt)}${s.durationMs != null ? ` · ${s.durationMs} ms` : ''}`;
     badge.title = `${stateLabel(s)} · ${updated}`;
     badge.setAttribute('aria-label', badge.title);
@@ -88,20 +130,24 @@ async function poll() {
   setTimeout(poll, 1000);
 }
 $('#view-tabs').onclick = e => { const b = e.target.closest('[data-view]'); if (!b) return; view = b.dataset.view; $$('#view-tabs button').forEach(el => el.classList.toggle('active', el === b)); render(); };
-for (const id of ['search','group-filter','layout']) $('#' + id).addEventListener(id === 'search' ? 'input' : 'change', () => { page = 0; render(); });
+for (const id of ['search','group-filter','layout']) $('#' + id).addEventListener(id === 'search' ? 'input' : 'change', () => { page = 0; render(); positionAllOutputs(); });
 $('#prev-btn').onclick = () => { page--; render(); }; $('#next-btn').onclick = () => { page++; render(); };
 $('#pause-btn').onclick = () => { paused = !paused; $('#pause-btn').textContent = paused ? '▶ 恢复' : 'Ⅱ 暂停'; render(); };
 $('#refresh-btn').onclick = async () => { if (demo) return toast('当前是演示数据'); try { await api('refresh','POST'); toast('已请求刷新'); } catch(e) { toast(e.message); } };
 $('#fullscreen-btn').onclick = async () => { try { if (document.fullscreenElement) await document.exitFullscreen(); else await document.documentElement.requestFullscreen(); } catch(e) { toast('浏览器未允许全屏，请尝试按 F11'); } };
 document.addEventListener('fullscreenchange', () => { $('#fullscreen-btn').textContent = document.fullscreenElement ? '⛶ 退出全屏' : '⛶ 全屏'; $('#fullscreen-btn').setAttribute('aria-pressed', !!document.fullscreenElement); });
 $$('[data-close]').forEach(b => b.onclick = () => $('#' + b.dataset.close).close());
-function openDetail(id) { detailID = id; detailView = view; updateDetail(); $('#detail-dialog').showModal(); }
+function openDetail(id) { detailID = id; detailView = view; updateDetail(); $('#detail-dialog').showModal(); positionOutput($('#detail-output')); }
 function updateDetail() {
   const m = config.machines.find(m => m.id === detailID); if (!m) return $('#detail-dialog').close();
   const s = states[m.id] || {status:'connecting'};
   $('#detail-title').textContent = m.name; $('#detail-subtitle').textContent = `${m.host}:${m.port} · ${stateLabel(s)} · ${time(s.updatedAt)}`;
   $('#detail-tabs').innerHTML = commands.map(c => `<button data-cmd="${c.id}" class="${detailView === c.id ? 'active' : ''}">${esc(c.name)}</button>`).join('');
-  $('#detail-output').textContent = textFor(m,s,detailView);
+  const output = $('#detail-output'), value = textFor(m,s,detailView);
+  const sample = s.updatedAt || '';
+  if (output.textContent !== value || output.dataset.command !== detailView || output.dataset.sample !== sample) {
+    output.textContent = value; output.dataset.command = detailView; output.dataset.sample = sample; positionOutput(output);
+  }
 }
 $('#detail-tabs').onclick = e => { const b = e.target.closest('[data-cmd]'); if (b) { detailView = b.dataset.cmd; updateDetail(); } };
 function openTrust(id) { trustPending = states[id]; $('#trust-title').textContent = trustPending.keyChanged ? '主机密钥已变化，请核对' : '确认 SSH 主机指纹'; $('#trust-address').textContent = trustPending.address; $('#trust-fingerprint').textContent = trustPending.fingerprint; $('#trust-error').textContent = ''; $('#trust-dialog').showModal(); }

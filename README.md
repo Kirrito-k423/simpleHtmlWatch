@@ -107,7 +107,7 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o s
 bash scripts/build.sh v0.1.0
 ```
 
-仓库 CI 在 Windows、macOS 和 Linux 上运行测试。推送 `v*` 标签会构建各平台发布包及 `SHA256SUMS`，并创建 GitHub Release。测试包括 16 台模拟 SSH 端点采集、首次指纹确认、主机密钥变化拦截、会话复用、命令失败、超时、配置加密和 HTTP 访问边界。测试中的服务是本地 SSH fixture，不代替真实 Ascend 硬件验证。
+仓库 CI 在 Windows、macOS 和 Linux 上运行测试。推送 `v*` 标签会构建各平台发布包及 `SHA256SUMS`，并创建 GitHub Release。测试包括 16 台机器配置的模拟 SSH 采集、首次指纹确认、主机密钥变化拦截、会话复用、命令失败、超时、配置加密和 HTTP 访问边界。测试中的服务是本地 SSH fixture，不代替真实 Ascend 硬件验证。
 
 ## 结构
 

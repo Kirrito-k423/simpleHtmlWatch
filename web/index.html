@@ -20,8 +20,8 @@
   </header>
   <main>
     <form id="custom-form" class="custom-bar" hidden>
-      <label for="custom-shell">自定义指令</label><input id="custom-shell" type="text" maxlength="4096" required spellcheck="false" autocomplete="off" aria-label="自定义指令" placeholder="ps -ef | grep tilexr（无需加 watch）" title="通过远端 Bash 定时执行，请填写可重复执行的短命令">
-      <button id="custom-apply" class="primary" type="submit">保存并运行</button><button id="custom-stop" type="button" disabled>停止</button><span id="custom-status" role="status"></span>
+      <select id="custom-select" aria-label="选择自定义指令"></select><button id="custom-add" type="button" title="新增自定义指令" aria-label="新增自定义指令">＋</button><input id="custom-name" maxlength="80" required aria-label="指令名称" placeholder="指令名称"><input id="custom-shell" type="text" maxlength="4096" required spellcheck="false" autocomplete="off" aria-label="自定义指令" placeholder="ps -ef | grep tilexr（无需加 watch）" title="通过远端 Bash 定时执行，请填写可重复执行的短命令">
+      <button id="custom-apply" class="primary" type="submit">保存并运行</button><button id="custom-stop" type="button" disabled>停止</button><button id="custom-delete" type="button" title="删除当前指令">删除</button><span id="custom-status" role="status"></span>
     </form>
     <div id="connection-error" class="notice" hidden></div>
     <section id="empty" class="empty" hidden><span class="empty-icon">⌁</span><div class="eyebrow">YOUR MACHINES. YOUR VIEW.</div><h2>把终端里的机器，放到同一个页面。</h2><p>创建一组共享凭据，添加机器，就能开始监控。<br>无需远程安装组件，最多 16 台同屏。</p><div><button id="empty-add" class="primary">＋ 添加第一台机器</button><button id="demo-btn">体验 16 台演示</button></div><div class="setup-steps"><span><b>01</b> 保存共享凭据</span><span><b>02</b> 批量添加机器</span><span><b>03</b> 等待 5 秒，自动连接</span></div></section>

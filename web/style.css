@@ -30,8 +30,8 @@ h1,h2,h3,p{margin:0}h2{font-size:21px}h3{font-size:15px}p{color:var(--muted)}
 main{flex:1;min-height:0;display:flex;flex-direction:column;padding:6px 8px 0}
 .custom-bar{display:flex;align-items:center;gap:7px;flex-shrink:0;margin-bottom:6px;white-space:nowrap;font-size:11px}
 .custom-bar input{flex:1;font:12px/1.4 "Cascadia Mono",Consolas,monospace;min-width:100px}
-.custom-bar input,.custom-bar button{height:29px;padding:4px 8px}
-.custom-bar button{font-size:11px}.custom-bar span{color:var(--muted);font-size:10px}
+.custom-bar input,.custom-bar button,.custom-bar select{height:29px;padding:4px 8px}
+.custom-bar select{max-width:160px;font-size:11px}.custom-bar #custom-name{flex:0 1 105px;min-width:65px;font-family:inherit}.custom-bar button{font-size:11px}.custom-bar span{color:var(--muted);font-size:10px}
 @media(max-width:800px){.custom-bar{flex-wrap:wrap}.custom-bar span{width:100%}}
 .machine-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));grid-auto-rows:minmax(0,1fr);gap:6px;flex:1;min-height:0}
 .machine-grid[data-layout="2"],.machine-grid[data-layout="4"]{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -94,7 +94,7 @@ dialog::backdrop{background:#000a;backdrop-filter:blur(5px)}
 .batch-body pre{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--accent)}
 .batch-body .form-error{padding:0}
 .detail-dialog{width:min(1300px,96vw)}
-.detail-dialog .tabs{margin:18px 25px}
+.detail-dialog .tabs{margin:18px 25px;max-width:calc(100% - 50px);overflow-x:auto}.detail-dialog .tabs button{white-space:nowrap;flex-shrink:0}
 .detail-dialog pre{margin:0;padding:0 25px 25px;font:13px/1.65 "Cascadia Mono",Consolas,monospace;overflow:auto;min-height:200px;max-height:64dvh}
 #toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);padding:10px 20px;border-radius:8px;border:1px solid #677551;background:#273222;color:var(--accent);z-index:99;font-size:13px}
 

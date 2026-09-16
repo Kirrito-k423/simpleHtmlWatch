@@ -6,7 +6,33 @@ const uid = () => crypto.randomUUID();
 const token = $('meta[name="watch-token"]').content;
 let config = {machines:[], profiles:[], interval:4, autoTrustNewKeys:true}, commands = [], states = {}, view = 'npu', page = 0;
 let paused = false, demo = false, draft, detailID, detailView, trustPending, busy = false, toastTimer;
-let backendOK = true;
+let backendOK = true, customID = '';
+const customEdits = new Map();
+const savedCustoms = () => config.customCommands || [];
+function customChoices() { return [...savedCustoms(), ...[...customEdits.values()].filter(c => !savedCustoms().some(s => s.id === c.id))]; }
+function newCustom() {
+  const c = {id:'custom-' + uid(), name:`自定义 ${customChoices().length + 1}`, shell:'', enabled:false};
+  customEdits.set(c.id, c); return c;
+}
+function syncCustomEditor() {
+  if (!customChoices().some(c => c.id === customID)) customID = (customChoices()[0] || newCustom()).id;
+  const c = customEdits.get(customID) || savedCustoms().find(c => c.id === customID);
+  $('#custom-name').value = c.name; $('#custom-shell').value = c.shell;
+}
+function resetCustomEditor() { customEdits.clear(); syncCustomEditor(); }
+const resultID = selected => selected === 'custom' ? customID : selected;
+function renderCustomControls() {
+  const choices = customChoices(), selected = savedCustoms().find(c => c.id === customID);
+  const options = choices.map(c => { const edit = customEdits.get(c.id); return `<option value="${esc(c.id)}">${esc(edit?.name || c.name)}${c.enabled ? ' · 运行' : ' · 停止'}${edit ? ' *' : ''}</option>`; }).join('');
+  if ($('#custom-select').innerHTML !== options) $('#custom-select').innerHTML = options;
+  $('#custom-select').value = customID;
+  $('#custom-form').hidden = view !== 'custom';
+  for (const id of ['custom-apply','custom-shell','custom-name','custom-select','custom-delete']) $('#'+id).disabled = busy;
+  $('#custom-add').disabled = busy || choices.length >= 32;
+  $('#custom-stop').disabled = busy || !selected?.enabled;
+  $('#custom-status').textContent = selected?.enabled ? `全部启用机器 · ${config.interval}s · ${demo ? '模拟输出' : '运行中'}` : '全部启用机器 · 已停止';
+  $('#custom-status').title = selected?.enabled ? `正在执行：${selected.shell}；切换指令仍继续采集，点击停止结束。` : '星号表示尚未保存的编辑';
+}
 const outputAnchors = {'top-left':[0,0], 'top-right':[1,0], center:[0.5,0.5], 'bottom-left':[0,1], 'bottom-right':[1,1]};
 let outputPosition = 'top-left';
 try {
@@ -68,7 +94,8 @@ function resultText(r) {
 }
 function textFor(m, s, selected) {
   if (!m.enabled) return '此机器已停用。可在「管理机器」中重新启用。';
-  if (selected === 'custom' && !config.customCommand?.enabled) return '自定义指令未运行。\n在上方填写单次命令，点击「保存并运行」。';
+  selected = resultID(selected);
+  if (selected.startsWith('custom-') && !savedCustoms().find(c => c.id === selected)?.enabled) return '自定义指令未运行。\n在上方填写单次命令，点击「保存并运行」。';
   if (s.status === 'untrusted' && s.autoTrustAt) return `首次连接：${autoTrustSeconds(s)} 秒后自动信任并连接。\n\n${s.fingerprint}\n\n无需点击，浏览器关闭后仍会继续。`;
   if (s.status === 'untrusted') return `${s.keyChanged ? '主机密钥已变化，请重新核对。' : '首次连接，需要确认主机身份。'}\n\n${s.fingerprint}\n\n确认后才会使用 SSH 密码登录。`;
   if (s.status === 'offline') {
@@ -76,19 +103,14 @@ function textFor(m, s, selected) {
     const failure = `连接失败\n${s.error}\n\n将自动重试。最近连接成功：${time(s.lastSuccess)}`;
     return r?.output ? `${resultText(r)}\n\n[本轮采集未完成，以上为已收到的输出]\n${failure}` : failure;
   }
-  if (selected !== 'custom' && !m.commands.includes(selected)) return '此机器尚未启用该监控项。\n可在「管理机器」中勾选。';
+  if (!selected.startsWith('custom-') && !m.commands.includes(selected)) return '此机器尚未启用该监控项。\n可在「管理机器」中勾选。';
   const r = s.results?.find(r => r.commandId === selected);
   if (!r) return '正在等待采集…';
   return resultText(r);
 }
 function render() {
-  $('#custom-form').hidden = view !== 'custom';
+  renderCustomControls();
   $$('#view-tabs button').forEach(el => el.classList.toggle('active', el.dataset.view === view));
-  $('#custom-stop').disabled = busy || !config.customCommand?.enabled;
-  $('#custom-apply').disabled = busy;
-  $('#custom-shell').disabled = busy;
-  $('#custom-status').textContent = config.customCommand?.enabled ? `全部已启用机器 · 每 ${config.interval}s · ${demo ? '模拟输出' : '运行中'}` : '全部已启用机器 · 已停止';
-  $('#custom-status').title = config.customCommand?.enabled ? `正在执行：${config.customCommand.shell}；切换视图仍继续采集，点击停止结束。` : '';
   const query = $('#search').value.toLowerCase().trim(), group = $('#group-filter').value, size = Number($('#layout').value);
   const filtered = config.machines.filter(m => (!group || m.group === group) && `${m.name} ${m.host}`.toLowerCase().includes(query));
   page = Math.max(0, Math.min(page, Math.ceil(filtered.length / size) - 1));
@@ -119,11 +141,11 @@ function render() {
     $('.host', card).textContent = `${m.host}:${m.port}`;
     $('.group', card).textContent = m.group || '未分组';
     const out = $('.card-output', card), value = textFor(m, s, view);
-    const message = !['online','partial'].includes(s.status) && !s.results?.find(r => r.commandId === view)?.output;
+    const message = !['online','partial'].includes(s.status) && !s.results?.find(r => r.commandId === resultID(view))?.output;
     const sample = s.updatedAt || '';
-    const changed = out.textContent !== value || out.dataset.command !== view || out.dataset.sample !== sample || out.classList.contains('message') !== message;
+    const changed = out.textContent !== value || out.dataset.command !== resultID(view) || out.dataset.sample !== sample || out.classList.contains('message') !== message;
     if (out.textContent !== value) out.textContent = value;
-    out.dataset.command = view;
+    out.dataset.command = resultID(view);
     out.dataset.sample = sample;
     out.classList.toggle('message', message);
     if (changed) positionOutput(out);
@@ -141,7 +163,7 @@ function render() {
   $('#demo-tag').hidden = !demo; $('#exit-demo').hidden = !demo; $('#settings-btn').disabled = demo;
   if ($('#detail-dialog').open) updateDetail();
 }
-async function loadConfig() { const data = await api('config'); config = data.config; commands = data.commands; $('#custom-shell').value = config.customCommand?.shell || ''; if (config.customCommand?.enabled) view = 'custom'; setGroups(); }
+async function loadConfig() { const data = await api('config'); config = data.config; commands = data.commands; resetCustomEditor(); if (savedCustoms().some(c => c.enabled)) { customID = savedCustoms().find(c => c.enabled).id; syncCustomEditor(); view = 'custom'; } setGroups(); }
 async function poll() {
   if (!demo && !paused && !busy) {
     try { states = await api('status'); backendOK = true; $('#connection-error').hidden = true; render(); }
@@ -150,31 +172,41 @@ async function poll() {
   setTimeout(poll, 1000);
 }
 $('#view-tabs').onclick = e => { const b = e.target.closest('[data-view]'); if (!b) return; view = b.dataset.view; $$('#view-tabs button').forEach(el => el.classList.toggle('active', el === b)); render(); };
-async function saveCustom(enabled) {
+async function saveCustom(enabled, remove = false) {
   if (busy) return;
-  const shell = enabled ? $('#custom-shell').value.trim() : (config.customCommand?.shell || '');
-  if (enabled && !shell) return toast('请输入自定义指令');
-  if (new TextEncoder().encode(shell).length > 4096) return toast('自定义指令最长 4096 字节');
-  if (/^(?:\S*\/)?watch(?:\s|$)/.test(shell)) return toast('无需加 watch，请直接填写单次命令，程序会自动定时执行');
+  const selected = savedCustoms().find(c => c.id === customID);
+  const value = enabled ? {id:customID, name:$('#custom-name').value.trim(), shell:$('#custom-shell').value.trim(), enabled:true} : {...selected, id:customID, enabled:false};
+  if (enabled && (!value.shell || !value.name)) return toast('请输入指令名称和内容');
+  if (enabled && new TextEncoder().encode(value.shell).length > 4096) return toast('自定义指令最长 4096 字节');
+  if (enabled && /^(?:\S*\/)?watch(?:\s|$)/.test(value.shell)) return toast('无需加 watch，请直接填写单次命令，程序会自动定时执行');
   busy = true; render();
   try {
-    if (demo) {
-      config.customCommand = {shell, enabled};
+    if (demo || (remove && !selected)) {
+      config.customCommands = savedCustoms().filter(c => c.id !== customID);
+      if (!remove) config.customCommands.push(value);
       for (const s of Object.values(states)) {
-        s.results = s.results.filter(r => r.commandId !== 'custom');
-        if (enabled) s.results.push({commandId:'custom', output:`[演示：未执行真实命令] ${shell}\nUID        PID  PPID  C STIME TTY      TIME CMD\nroot      3101     1 92 09:30 ?    00:21:14 tilexr --worker 0`});
+        s.results = s.results.filter(r => r.commandId !== customID);
+        if (enabled) s.results.push({commandId:customID, output:`[演示：未执行真实命令] ${value.shell}\nUID        PID  PPID  C STIME TTY      TIME CMD\nroot      3101     1 92 09:30 ?    00:21:14 tilexr --worker 0`});
       }
     } else {
-      config = await api('custom-command', 'PUT', {shell, enabled});
+      config = await api('custom-commands', remove ? 'DELETE' : 'PUT', remove ? {id:customID} : value);
       states = {};
     }
-    $('#custom-shell').value = config.customCommand.shell;
-    toast(enabled ? '已保存，开始定时执行自定义指令' : '已停止自定义指令，保留指令内容');
+    if (remove || enabled) customEdits.delete(customID);
+    syncCustomEditor();
+    toast(remove ? '已删除当前指令' : enabled ? '已保存，开始定时执行当前指令' : '已停止当前指令，其他指令继续采集');
   } catch(e) { toast(e.message); }
   finally { busy = false; render(); }
 }
 $('#custom-form').onsubmit = e => { e.preventDefault(); saveCustom(true); };
 $('#custom-stop').onclick = () => saveCustom(false);
+$('#custom-delete').onclick = () => saveCustom(false, true);
+$('#custom-add').onclick = () => { if (busy || customChoices().length >= 32) return; customID = newCustom().id; syncCustomEditor(); render(); $('#custom-name').focus(); };
+$('#custom-select').onchange = () => { customID = $('#custom-select').value; syncCustomEditor(); render(); };
+for (const id of ['custom-name','custom-shell']) $('#'+id).oninput = () => {
+  customEdits.set(customID, {id:customID, name:$('#custom-name').value, shell:$('#custom-shell').value, enabled:false});
+  renderCustomControls();
+};
 for (const id of ['search','group-filter','layout']) $('#' + id).addEventListener(id === 'search' ? 'input' : 'change', () => { page = 0; render(); positionAllOutputs(); });
 $('#prev-btn').onclick = () => { page--; render(); }; $('#next-btn').onclick = () => { page++; render(); };
 $('#pause-btn').onclick = () => { paused = !paused; $('#pause-btn').textContent = paused ? '▶ 恢复' : 'Ⅱ 暂停'; render(); };
@@ -182,12 +214,13 @@ $('#refresh-btn').onclick = async () => { if (demo) return toast('当前是演�
 $('#fullscreen-btn').onclick = async () => { try { if (document.fullscreenElement) await document.exitFullscreen(); else await document.documentElement.requestFullscreen(); } catch(e) { toast('浏览器未允许全屏，请尝试按 F11'); } };
 document.addEventListener('fullscreenchange', () => { $('#fullscreen-btn').textContent = document.fullscreenElement ? '⛶ 退出全屏' : '⛶ 全屏'; $('#fullscreen-btn').setAttribute('aria-pressed', !!document.fullscreenElement); });
 $$('[data-close]').forEach(b => b.onclick = () => $('#' + b.dataset.close).close());
-function openDetail(id) { detailID = id; detailView = view; updateDetail(); $('#detail-dialog').showModal(); positionOutput($('#detail-output')); }
+function openDetail(id) { detailID = id; detailView = resultID(view); updateDetail(); $('#detail-dialog').showModal(); positionOutput($('#detail-output')); }
 function updateDetail() {
   const m = config.machines.find(m => m.id === detailID); if (!m) return $('#detail-dialog').close();
   const s = states[m.id] || {status:'connecting'};
   $('#detail-title').textContent = m.name; $('#detail-subtitle').textContent = `${m.host}:${m.port} · ${stateLabel(s)} · ${time(s.updatedAt)}`;
-  $('#detail-tabs').innerHTML = [...commands, {id:'custom',name:'自定义指令'}].map(c => `<button data-cmd="${c.id}" class="${detailView === c.id ? 'active' : ''}">${esc(c.name)}</button>`).join('');
+  if (detailView?.startsWith('custom-') && !customChoices().some(c => c.id === detailView)) detailView = customID;
+  $('#detail-tabs').innerHTML = [...commands, ...customChoices()].map(c => `<button data-cmd="${c.id}" class="${detailView === c.id ? 'active' : ''}">${esc(c.name)}</button>`).join('');
   const output = $('#detail-output'), value = textFor(m,s,detailView);
   const sample = s.updatedAt || '';
   if (output.textContent !== value || output.dataset.command !== detailView || output.dataset.sample !== sample) {
@@ -218,7 +251,7 @@ $('#add-machine').onclick = () => { readEditors(); draft.machines.push({id:uid()
 $('#machines-editor').onclick = e => { const b = e.target.closest('[data-remove-machine]'); if (!b) return; readEditors(); draft.machines = draft.machines.filter(m => m.id !== b.dataset.removeMachine); renderEditors(); };
 $('#settings-form').onsubmit = async e => {
   e.preventDefault(); readEditors(); $('#settings-error').textContent = ''; $('#save-btn').disabled = true; busy = true;
-  try { config = await api('config','PUT',draft); $('#custom-shell').value = config.customCommand?.shell || ''; states = {}; setGroups(); render(); $('#settings-dialog').close(); toast('配置已保存，正在连接机器'); }
+  try { config = await api('config','PUT',draft); resetCustomEditor(); states = {}; setGroups(); render(); $('#settings-dialog').close(); toast('配置已保存，正在连接机器'); }
   catch(e) { $('#settings-error').textContent = e.message; }
   finally { $('#save-btn').disabled = false; busy = false; render(); }
 };
@@ -252,8 +285,14 @@ $('#import-file').onchange = async e => {
     const c = JSON.parse(await f.text());
     if (!Array.isArray(c.machines) || !Array.isArray(c.profiles) || !Number.isInteger(c.interval) || c.interval < 3 || c.interval > 3600) throw new Error('配置结构或刷新间隔无效');
     if (c.machines.length > 200 || c.profiles.length > 100) throw new Error('配置数量超出限制');
-    if (c.customCommand != null && (typeof c.customCommand.shell !== 'string' || typeof c.customCommand.enabled !== 'boolean' || new TextEncoder().encode(c.customCommand.shell).length > 4096 || c.customCommand.shell.includes('\0'))) throw new Error('自定义指令格式无效');
-    c.customCommand = {shell:c.customCommand?.shell || '', enabled:false};
+    if (c.customCommands == null) c.customCommands = c.customCommand?.shell ? [{...c.customCommand,id:'custom-legacy',name:'自定义指令 1'}] : [];
+    if (!Array.isArray(c.customCommands) || c.customCommands.length > 32) throw new Error('最多支持 32 条自定义指令');
+    const customIDs = new Set();
+    for (const cmd of c.customCommands) {
+      if (!cmd || typeof cmd.id !== 'string' || !/^custom-[a-zA-Z0-9_-]+$/.test(cmd.id) || cmd.id.length > 80 || customIDs.has(cmd.id) || typeof cmd.name !== 'string' || !cmd.name.trim() || [...cmd.name].length > 80 || typeof cmd.shell !== 'string' || new TextEncoder().encode(cmd.shell).length > 4096 || cmd.shell.includes('\0')) throw new Error('自定义指令格式无效或 ID 重复');
+      customIDs.add(cmd.id); cmd.enabled = false;
+    }
+    delete c.customCommand;
     const validID = s => typeof s === 'string' && /^[a-zA-Z0-9_-]{1,80}$/.test(s);
     const seenProfiles = new Set(), seenMachines = new Set();
     for (const p of c.profiles) {
@@ -271,8 +310,8 @@ $('#import-file').onchange = async e => {
   } catch(e) { $('#settings-error').textContent = `导入失败：${e.message}`; } finally { e.target.value = ''; }
 };
 function enterDemo() {
-  $('#custom-shell').value = ''; view = 'npu';
-  demo = true; paused = false; $('#pause-btn').textContent = 'Ⅱ 暂停'; states = {}; config = {interval:4,autoTrustNewKeys:true,profiles:[],machines:[]};
+  customEdits.clear(); customID = ''; view = 'npu';
+  demo = true; paused = false; $('#pause-btn').textContent = 'Ⅱ 暂停'; states = {}; config = {interval:4,autoTrustNewKeys:true,profiles:[],machines:[],customCommands:[]}; syncCustomEditor();
   for (let i=1;i<=16;i++) {
     const id = `demo-${i}`, n = String(i).padStart(2,'0'), status = i === 7 ? 'offline' : i === 12 || i === 15 ? 'partial' : 'online';
     config.machines.push({id,name:`ascend-${n}`,host:`192.0.2.${10+i}`,port:22,group:i<9?'训练集群':'开发集群',profileId:'demo',commands:['npu','python','usage'],enabled:true});

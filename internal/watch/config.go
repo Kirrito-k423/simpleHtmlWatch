@@ -34,13 +34,16 @@ type Machine struct {
 	Enabled   bool     `json:"enabled"`
 }
 type Config struct {
-	CustomCommand    CustomCommand `json:"customCommand"`
-	AutoTrustNewKeys bool          `json:"autoTrustNewKeys"`
-	Interval         int           `json:"interval"`
-	Profiles         []Profile     `json:"profiles"`
-	Machines         []Machine     `json:"machines"`
+	CustomCommands   []CustomCommand `json:"customCommands"`
+	CustomCommand    *CustomCommand  `json:"customCommand,omitempty"` // Legacy v0.1.5 configuration.
+	AutoTrustNewKeys bool            `json:"autoTrustNewKeys"`
+	Interval         int             `json:"interval"`
+	Profiles         []Profile       `json:"profiles"`
+	Machines         []Machine       `json:"machines"`
 }
 type CustomCommand struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
 	Shell   string `json:"shell"`
 	Enabled bool   `json:"enabled"`
 }
@@ -83,9 +86,40 @@ func commandByID(id string) (Command, bool) {
 var identifier = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,80}$`)
 var hostname = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9.-]{0,252}$`)
 
+func (c *Config) migrateCustomCommand() error {
+	if c.CustomCommand != nil {
+		if len(c.CustomCommands) > 0 {
+			return errors.New("不能同时提供新旧自定义指令配置")
+		}
+		old := *c.CustomCommand
+		if old.Shell != "" || old.Enabled {
+			old.ID, old.Name = "custom-legacy", "自定义指令 1"
+			c.CustomCommands = []CustomCommand{old}
+		}
+		c.CustomCommand = nil
+	}
+	if c.CustomCommands == nil {
+		c.CustomCommands = []CustomCommand{}
+	}
+	return nil
+}
+
 func (c Config) Validate() error {
-	if err := c.CustomCommand.Validate(); err != nil {
-		return err
+	if len(c.CustomCommands) > 32 {
+		return errors.New("最多支持 32 条自定义指令")
+	}
+	customIDs := map[string]bool{}
+	for _, cmd := range c.CustomCommands {
+		if !identifier.MatchString(cmd.ID) || !strings.HasPrefix(cmd.ID, "custom-") || len(cmd.ID) <= len("custom-") || customIDs[cmd.ID] {
+			return errors.New("自定义指令 ID 无效或重复")
+		}
+		if strings.TrimSpace(cmd.Name) == "" || len([]rune(cmd.Name)) > 80 {
+			return errors.New("请填写指令名称，最长 80 字符")
+		}
+		if err := cmd.Validate(); err != nil {
+			return err
+		}
+		customIDs[cmd.ID] = true
 	}
 	if c.Interval < 3 || c.Interval > 3600 {
 		return errors.New("刷新间隔需为 3–3600 秒")
@@ -146,7 +180,7 @@ func NewStore(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
 	}
-	s := &Store{dir: dir, config: Config{AutoTrustNewKeys: true, Interval: 4, Profiles: []Profile{}, Machines: []Machine{}}}
+	s := &Store{dir: dir, config: Config{CustomCommands: []CustomCommand{}, AutoTrustNewKeys: true, Interval: 4, Profiles: []Profile{}, Machines: []Machine{}}}
 	keyPath := filepath.Join(dir, "vault.key")
 	key, err := os.ReadFile(keyPath)
 	if os.IsNotExist(err) {
@@ -180,6 +214,9 @@ func NewStore(dir string) (*Store, error) {
 		return nil, errors.New("无法解密配置，请确认 config.enc 与 vault.key 来自同一份备份")
 	}
 	if err = json.Unmarshal(plain, &s.config); err != nil {
+		return nil, err
+	}
+	if err = s.config.migrateCustomCommand(); err != nil {
 		return nil, err
 	}
 	if err = s.config.Validate(); err != nil {
@@ -232,6 +269,9 @@ func (s *Store) Public() Config {
 	return c
 }
 func (s *Store) Save(c Config) error {
+	if err := c.migrateCustomCommand(); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	old := map[string]string{}

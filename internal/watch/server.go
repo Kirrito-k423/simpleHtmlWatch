@@ -113,8 +113,8 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 		default:
 			w.WriteHeader(405)
 		}
-	case "/api/custom-command":
-		if r.Method != "PUT" {
+	case "/api/custom-commands":
+		if r.Method != "PUT" && r.Method != "DELETE" {
 			w.WriteHeader(405)
 			return
 		}
@@ -127,7 +127,24 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		c := s.store.Snapshot()
-		c.CustomCommand = custom
+		index := -1
+		for i, cmd := range c.CustomCommands {
+			if cmd.ID == custom.ID {
+				index = i
+				break
+			}
+		}
+		if r.Method == "DELETE" {
+			if index < 0 {
+				fail(w, 404, "自定义指令不存在")
+				return
+			}
+			c.CustomCommands = append(c.CustomCommands[:index], c.CustomCommands[index+1:]...)
+		} else if index >= 0 {
+			c.CustomCommands[index] = custom
+		} else {
+			c.CustomCommands = append(c.CustomCommands, custom)
+		}
 		if err := s.store.Save(c); err != nil {
 			fail(w, 400, err.Error())
 			return

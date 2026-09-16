@@ -82,8 +82,10 @@ func (m *Monitor) Replace(c Config) {
 		selected := []Command{}
 		// Run the user's selected watch first so an unavailable built-in command
 		// cannot prevent it from being sampled.
-		if c.CustomCommand.Enabled {
-			selected = append(selected, Command{ID: "custom", Name: "自定义指令", Shell: c.CustomCommand.Shell})
+		for _, custom := range c.CustomCommands {
+			if custom.Enabled {
+				selected = append(selected, Command{ID: custom.ID, Name: custom.Name, Shell: custom.Shell})
+			}
 		}
 		for _, id := range host.Commands {
 			if cmd, ok := commandByID(id); ok {
@@ -162,7 +164,7 @@ func (m *Monitor) worker(ctx context.Context, host Machine, profile Profile, sel
 				r, transportErr := runWithDeadline(ctx, client, conn, cmd, m.commandTimeout)
 				// Only the fixed read-only monitoring commands may be repeated. Retry
 				// transport failures once per sample, never ordinary nonzero exits.
-				if transportErr != nil && cmd.ID != "custom" && retryAvailable && ctx.Err() == nil {
+				if transportErr != nil && !strings.HasPrefix(cmd.ID, "custom-") && retryAvailable && ctx.Err() == nil {
 					retryAvailable = false
 					s.Reconnects++
 					closeConnection()

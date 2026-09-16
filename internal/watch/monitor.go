@@ -79,7 +79,18 @@ func (m *Monitor) Replace(c Config) {
 		trigger := make(chan struct{}, 1)
 		m.triggers[host.ID] = trigger
 		m.wg.Add(1)
-		go m.worker(ctx, host, profiles[host.ProfileID], time.Duration(c.Interval)*time.Second, c.AutoTrustNewKeys, trigger)
+		selected := []Command{}
+		// Run the user's selected watch first so an unavailable built-in command
+		// cannot prevent it from being sampled.
+		if c.CustomCommand.Enabled {
+			selected = append(selected, Command{ID: "custom", Name: "自定义指令", Shell: c.CustomCommand.Shell})
+		}
+		for _, id := range host.Commands {
+			if cmd, ok := commandByID(id); ok {
+				selected = append(selected, cmd)
+			}
+		}
+		go m.worker(ctx, host, profiles[host.ProfileID], selected, time.Duration(c.Interval)*time.Second, c.AutoTrustNewKeys, trigger)
 	}
 	m.mu.Unlock()
 }
@@ -116,7 +127,7 @@ func (m *Monitor) put(ctx context.Context, s State) {
 		m.states[s.MachineID] = s
 	}
 }
-func (m *Monitor) worker(ctx context.Context, host Machine, profile Profile, interval time.Duration, autoTrust bool, trigger <-chan struct{}) {
+func (m *Monitor) worker(ctx context.Context, host Machine, profile Profile, selected []Command, interval time.Duration, autoTrust bool, trigger <-chan struct{}) {
 	defer m.wg.Done()
 	var client *ssh.Client
 	var conn net.Conn
@@ -147,12 +158,11 @@ func (m *Monitor) worker(ctx context.Context, host Machine, profile Profile, int
 		}
 		if err == nil {
 			retryAvailable := true
-			for _, id := range host.Commands {
-				cmd, _ := commandByID(id)
+			for _, cmd := range selected {
 				r, transportErr := runWithDeadline(ctx, client, conn, cmd, m.commandTimeout)
 				// Only the fixed read-only monitoring commands may be repeated. Retry
 				// transport failures once per sample, never ordinary nonzero exits.
-				if transportErr != nil && retryAvailable && ctx.Err() == nil {
+				if transportErr != nil && cmd.ID != "custom" && retryAvailable && ctx.Err() == nil {
 					retryAvailable = false
 					s.Reconnects++
 					closeConnection()

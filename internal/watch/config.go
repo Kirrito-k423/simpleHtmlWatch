@@ -34,11 +34,31 @@ type Machine struct {
 	Enabled   bool     `json:"enabled"`
 }
 type Config struct {
-	AutoTrustNewKeys bool      `json:"autoTrustNewKeys"`
-	Interval         int       `json:"interval"`
-	Profiles         []Profile `json:"profiles"`
-	Machines         []Machine `json:"machines"`
+	CustomCommand    CustomCommand `json:"customCommand"`
+	AutoTrustNewKeys bool          `json:"autoTrustNewKeys"`
+	Interval         int           `json:"interval"`
+	Profiles         []Profile     `json:"profiles"`
+	Machines         []Machine     `json:"machines"`
 }
+type CustomCommand struct {
+	Shell   string `json:"shell"`
+	Enabled bool   `json:"enabled"`
+}
+
+func (c CustomCommand) Validate() error {
+	if len(c.Shell) > 4096 || strings.ContainsRune(c.Shell, 0) {
+		return errors.New("自定义指令最长 4096 字节，不能包含空字符")
+	}
+	if c.Enabled && strings.TrimSpace(c.Shell) == "" {
+		return errors.New("请输入自定义指令")
+	}
+	fields := strings.Fields(c.Shell)
+	if len(fields) > 0 && (fields[0] == "watch" || strings.HasSuffix(fields[0], "/watch")) {
+		return errors.New("无需添加 watch，请直接填写单次命令，例如 ps -ef | grep tilexr；程序会自动定时执行")
+	}
+	return nil
+}
+
 type Command struct {
 	ID    string `json:"id"`
 	Name  string `json:"name"`
@@ -64,6 +84,9 @@ var identifier = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,80}$`)
 var hostname = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9.-]{0,252}$`)
 
 func (c Config) Validate() error {
+	if err := c.CustomCommand.Validate(); err != nil {
+		return err
+	}
 	if c.Interval < 3 || c.Interval > 3600 {
 		return errors.New("刷新间隔需为 3–3600 秒")
 	}

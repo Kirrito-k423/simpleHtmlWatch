@@ -113,6 +113,27 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 		default:
 			w.WriteHeader(405)
 		}
+	case "/api/custom-command":
+		if r.Method != "PUT" {
+			w.WriteHeader(405)
+			return
+		}
+		var custom CustomCommand
+		if err := decode(w, r, &custom); err != nil {
+			fail(w, 400, "指令格式无效："+err.Error())
+			return
+		}
+		custom.Shell = strings.TrimSpace(custom.Shell)
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		c := s.store.Snapshot()
+		c.CustomCommand = custom
+		if err := s.store.Save(c); err != nil {
+			fail(w, 400, err.Error())
+			return
+		}
+		s.monitor.Replace(s.store.Snapshot())
+		jsonResponse(w, 200, s.store.Public())
 	case "/api/status":
 		if r.Method != "GET" {
 			w.WriteHeader(405)

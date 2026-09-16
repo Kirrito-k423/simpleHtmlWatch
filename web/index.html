@@ -13,12 +13,16 @@
     <span id="demo-tag" class="demo-tag" hidden>演示</span>
     <div class="summary" aria-label="机器统计"><span title="已配置"><b id="total">00</b> 台</span><span class="green" title="运行正常"><b id="online">00</b> 正常</span><span title="需要关注"><b id="attention">00</b> 关注</span></div>
     <div class="toolbar" role="region" aria-label="监控工具栏">
-      <div class="tabs" id="view-tabs"><button data-view="npu" class="active">NPU 状态</button><button data-view="python">Python 进程</button><button data-view="usage">CPU / 内存</button></div>
+      <div class="tabs" id="view-tabs"><button data-view="npu" class="active">NPU 状态</button><button data-view="python">Python 进程</button><button data-view="usage">CPU / 内存</button><button data-view="custom">自定义</button></div>
       <div class="filters"><input id="search" type="search" placeholder="名称 / IP" aria-label="搜索机器"><select id="group-filter" aria-label="机器分组"><option value="">所有分组</option></select><select id="layout" aria-label="同屏台数"><option value="2">2 台 / 屏</option><option value="4">4 台 / 屏</option><option value="8">8 台 / 屏</option><option value="16" selected>16 台 / 屏</option></select><select id="output-position" aria-label="内容位置" title="统一定位所有机器输出的可见区域"><option value="top-left" selected>正文 · 左上</option><option value="top-right">正文 · 右上</option><option value="center">正文 · 居中</option><option value="bottom-left">正文 · 左下</option><option value="bottom-right">正文 · 右下</option></select><button id="refresh-btn" title="立即采集" aria-label="立即采集">↻</button><button id="pause-btn" title="暂停本页面显示更新，后台继续采集">Ⅱ 暂停</button></div>
     </div>
     <div class="top-actions"><button id="settings-btn">⚙ 管理机器</button><button id="fullscreen-btn" title="进入全屏，按 Esc 退出">⛶ 全屏</button></div>
   </header>
   <main>
+    <form id="custom-form" class="custom-bar" hidden>
+      <label for="custom-shell">自定义指令</label><input id="custom-shell" type="text" maxlength="4096" required spellcheck="false" autocomplete="off" aria-label="自定义指令" placeholder="ps -ef | grep tilexr（无需加 watch）" title="通过远端 Bash 定时执行，请填写可重复执行的短命令">
+      <button id="custom-apply" class="primary" type="submit">保存并运行</button><button id="custom-stop" type="button" disabled>停止</button><span id="custom-status" role="status"></span>
+    </form>
     <div id="connection-error" class="notice" hidden></div>
     <section id="empty" class="empty" hidden><span class="empty-icon">⌁</span><div class="eyebrow">YOUR MACHINES. YOUR VIEW.</div><h2>把终端里的机器，放到同一个页面。</h2><p>创建一组共享凭据，添加机器，就能开始监控。<br>无需远程安装组件，最多 16 台同屏。</p><div><button id="empty-add" class="primary">＋ 添加第一台机器</button><button id="demo-btn">体验 16 台演示</button></div><div class="setup-steps"><span><b>01</b> 保存共享凭据</span><span><b>02</b> 批量添加机器</span><span><b>03</b> 等待 5 秒，自动连接</span></div></section>
     <section id="grid" class="machine-grid" aria-label="机器监控卡片"></section>

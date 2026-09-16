@@ -138,6 +138,8 @@ type fixture struct {
 	failNPU         atomic.Bool
 	emptyNPU        atomic.Bool
 	ignoreKeepalive atomic.Bool
+	customRuns      atomic.Int32
+	dropCustom      atomic.Bool
 	npuRuns         atomic.Int32
 	activeConns     sync.Map
 	stop            chan struct{}
@@ -219,7 +221,14 @@ func newFixture(t *testing.T) *fixture {
 								return
 							}
 							code := uint32(0)
-							if strings.Contains(v.Command, "npu-smi") {
+							if strings.Contains(v.Command, "tilexr") {
+								f.customRuns.Add(1)
+								_, _ = io.WriteString(stream, v.Command)
+								if f.dropCustom.Load() {
+									conn.Close()
+									return
+								}
+							} else if strings.Contains(v.Command, "npu-smi") {
 								f.npuRuns.Add(1)
 								if f.failNPU.Load() {
 									_, _ = io.WriteString(stream.Stderr(), "npu-smi: command not found\n")

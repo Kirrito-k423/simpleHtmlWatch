@@ -68,6 +68,7 @@ function resultText(r) {
 }
 function textFor(m, s, selected) {
   if (!m.enabled) return '此机器已停用。可在「管理机器」中重新启用。';
+  if (selected === 'custom' && !config.customCommand?.enabled) return '自定义指令未运行。\n在上方填写单次命令，点击「保存并运行」。';
   if (s.status === 'untrusted' && s.autoTrustAt) return `首次连接：${autoTrustSeconds(s)} 秒后自动信任并连接。\n\n${s.fingerprint}\n\n无需点击，浏览器关闭后仍会继续。`;
   if (s.status === 'untrusted') return `${s.keyChanged ? '主机密钥已变化，请重新核对。' : '首次连接，需要确认主机身份。'}\n\n${s.fingerprint}\n\n确认后才会使用 SSH 密码登录。`;
   if (s.status === 'offline') {
@@ -75,12 +76,19 @@ function textFor(m, s, selected) {
     const failure = `连接失败\n${s.error}\n\n将自动重试。最近连接成功：${time(s.lastSuccess)}`;
     return r?.output ? `${resultText(r)}\n\n[本轮采集未完成，以上为已收到的输出]\n${failure}` : failure;
   }
-  if (!m.commands.includes(selected)) return '此机器尚未启用该监控项。\n可在「管理机器」中勾选。';
+  if (selected !== 'custom' && !m.commands.includes(selected)) return '此机器尚未启用该监控项。\n可在「管理机器」中勾选。';
   const r = s.results?.find(r => r.commandId === selected);
   if (!r) return '正在等待采集…';
   return resultText(r);
 }
 function render() {
+  $('#custom-form').hidden = view !== 'custom';
+  $$('#view-tabs button').forEach(el => el.classList.toggle('active', el.dataset.view === view));
+  $('#custom-stop').disabled = busy || !config.customCommand?.enabled;
+  $('#custom-apply').disabled = busy;
+  $('#custom-shell').disabled = busy;
+  $('#custom-status').textContent = config.customCommand?.enabled ? `全部已启用机器 · 每 ${config.interval}s · ${demo ? '模拟输出' : '运行中'}` : '全部已启用机器 · 已停止';
+  $('#custom-status').title = config.customCommand?.enabled ? `正在执行：${config.customCommand.shell}；切换视图仍继续采集，点击停止结束。` : '';
   const query = $('#search').value.toLowerCase().trim(), group = $('#group-filter').value, size = Number($('#layout').value);
   const filtered = config.machines.filter(m => (!group || m.group === group) && `${m.name} ${m.host}`.toLowerCase().includes(query));
   page = Math.max(0, Math.min(page, Math.ceil(filtered.length / size) - 1));
@@ -133,7 +141,7 @@ function render() {
   $('#demo-tag').hidden = !demo; $('#exit-demo').hidden = !demo; $('#settings-btn').disabled = demo;
   if ($('#detail-dialog').open) updateDetail();
 }
-async function loadConfig() { const data = await api('config'); config = data.config; commands = data.commands; setGroups(); }
+async function loadConfig() { const data = await api('config'); config = data.config; commands = data.commands; $('#custom-shell').value = config.customCommand?.shell || ''; if (config.customCommand?.enabled) view = 'custom'; setGroups(); }
 async function poll() {
   if (!demo && !paused && !busy) {
     try { states = await api('status'); backendOK = true; $('#connection-error').hidden = true; render(); }
@@ -142,6 +150,31 @@ async function poll() {
   setTimeout(poll, 1000);
 }
 $('#view-tabs').onclick = e => { const b = e.target.closest('[data-view]'); if (!b) return; view = b.dataset.view; $$('#view-tabs button').forEach(el => el.classList.toggle('active', el === b)); render(); };
+async function saveCustom(enabled) {
+  if (busy) return;
+  const shell = enabled ? $('#custom-shell').value.trim() : (config.customCommand?.shell || '');
+  if (enabled && !shell) return toast('请输入自定义指令');
+  if (new TextEncoder().encode(shell).length > 4096) return toast('自定义指令最长 4096 字节');
+  if (/^(?:\S*\/)?watch(?:\s|$)/.test(shell)) return toast('无需加 watch，请直接填写单次命令，程序会自动定时执行');
+  busy = true; render();
+  try {
+    if (demo) {
+      config.customCommand = {shell, enabled};
+      for (const s of Object.values(states)) {
+        s.results = s.results.filter(r => r.commandId !== 'custom');
+        if (enabled) s.results.push({commandId:'custom', output:`[演示：未执行真实命令] ${shell}\nUID        PID  PPID  C STIME TTY      TIME CMD\nroot      3101     1 92 09:30 ?    00:21:14 tilexr --worker 0`});
+      }
+    } else {
+      config = await api('custom-command', 'PUT', {shell, enabled});
+      states = {};
+    }
+    $('#custom-shell').value = config.customCommand.shell;
+    toast(enabled ? '已保存，开始定时执行自定义指令' : '已停止自定义指令，保留指令内容');
+  } catch(e) { toast(e.message); }
+  finally { busy = false; render(); }
+}
+$('#custom-form').onsubmit = e => { e.preventDefault(); saveCustom(true); };
+$('#custom-stop').onclick = () => saveCustom(false);
 for (const id of ['search','group-filter','layout']) $('#' + id).addEventListener(id === 'search' ? 'input' : 'change', () => { page = 0; render(); positionAllOutputs(); });
 $('#prev-btn').onclick = () => { page--; render(); }; $('#next-btn').onclick = () => { page++; render(); };
 $('#pause-btn').onclick = () => { paused = !paused; $('#pause-btn').textContent = paused ? '▶ 恢复' : 'Ⅱ 暂停'; render(); };
@@ -154,7 +187,7 @@ function updateDetail() {
   const m = config.machines.find(m => m.id === detailID); if (!m) return $('#detail-dialog').close();
   const s = states[m.id] || {status:'connecting'};
   $('#detail-title').textContent = m.name; $('#detail-subtitle').textContent = `${m.host}:${m.port} · ${stateLabel(s)} · ${time(s.updatedAt)}`;
-  $('#detail-tabs').innerHTML = commands.map(c => `<button data-cmd="${c.id}" class="${detailView === c.id ? 'active' : ''}">${esc(c.name)}</button>`).join('');
+  $('#detail-tabs').innerHTML = [...commands, {id:'custom',name:'自定义指令'}].map(c => `<button data-cmd="${c.id}" class="${detailView === c.id ? 'active' : ''}">${esc(c.name)}</button>`).join('');
   const output = $('#detail-output'), value = textFor(m,s,detailView);
   const sample = s.updatedAt || '';
   if (output.textContent !== value || output.dataset.command !== detailView || output.dataset.sample !== sample) {
@@ -185,9 +218,9 @@ $('#add-machine').onclick = () => { readEditors(); draft.machines.push({id:uid()
 $('#machines-editor').onclick = e => { const b = e.target.closest('[data-remove-machine]'); if (!b) return; readEditors(); draft.machines = draft.machines.filter(m => m.id !== b.dataset.removeMachine); renderEditors(); };
 $('#settings-form').onsubmit = async e => {
   e.preventDefault(); readEditors(); $('#settings-error').textContent = ''; $('#save-btn').disabled = true; busy = true;
-  try { config = await api('config','PUT',draft); states = {}; setGroups(); render(); $('#settings-dialog').close(); toast('配置已保存，正在连接机器'); }
+  try { config = await api('config','PUT',draft); $('#custom-shell').value = config.customCommand?.shell || ''; states = {}; setGroups(); render(); $('#settings-dialog').close(); toast('配置已保存，正在连接机器'); }
   catch(e) { $('#settings-error').textContent = e.message; }
-  finally { $('#save-btn').disabled = false; busy = false; }
+  finally { $('#save-btn').disabled = false; busy = false; render(); }
 };
 $('#batch-btn').onclick = () => { readEditors(); if (!draft.profiles.length) { $('#settings-error').textContent = '请先新增一组共享凭据。'; return; } $('#batch-profile').innerHTML = profileOptions(draft.profiles[0].id); $('#batch-input').value = ''; $('#batch-error').textContent = ''; $('#batch-dialog').showModal(); };
 $('#batch-confirm').onclick = () => {
@@ -219,6 +252,8 @@ $('#import-file').onchange = async e => {
     const c = JSON.parse(await f.text());
     if (!Array.isArray(c.machines) || !Array.isArray(c.profiles) || !Number.isInteger(c.interval) || c.interval < 3 || c.interval > 3600) throw new Error('配置结构或刷新间隔无效');
     if (c.machines.length > 200 || c.profiles.length > 100) throw new Error('配置数量超出限制');
+    if (c.customCommand != null && (typeof c.customCommand.shell !== 'string' || typeof c.customCommand.enabled !== 'boolean' || new TextEncoder().encode(c.customCommand.shell).length > 4096 || c.customCommand.shell.includes('\0'))) throw new Error('自定义指令格式无效');
+    c.customCommand = {shell:c.customCommand?.shell || '', enabled:false};
     const validID = s => typeof s === 'string' && /^[a-zA-Z0-9_-]{1,80}$/.test(s);
     const seenProfiles = new Set(), seenMachines = new Set();
     for (const p of c.profiles) {
@@ -232,10 +267,11 @@ $('#import-file').onchange = async e => {
     if (!confirm('导入将替换当前编辑中的列表；保存后生效。继续？')) return;
     if (c.autoTrustNewKeys !== undefined && typeof c.autoTrustNewKeys !== 'boolean') throw new Error('自动信任选项需为布尔值');
     c.autoTrustNewKeys ??= true;
-    draft = c; $('#interval').value = c.interval; $('#auto-trust').checked = c.autoTrustNewKeys; renderEditors(); $('#settings-error').textContent = '已导入。新凭据需填写密码，再保存。';
+    draft = c; $('#interval').value = c.interval; $('#auto-trust').checked = c.autoTrustNewKeys; renderEditors(); $('#settings-error').textContent = '已导入。新凭据需填写密码，再保存。自定义指令已停止，可在自定义栏查看并启动。';
   } catch(e) { $('#settings-error').textContent = `导入失败：${e.message}`; } finally { e.target.value = ''; }
 };
 function enterDemo() {
+  $('#custom-shell').value = ''; view = 'npu';
   demo = true; paused = false; $('#pause-btn').textContent = 'Ⅱ 暂停'; states = {}; config = {interval:4,autoTrustNewKeys:true,profiles:[],machines:[]};
   for (let i=1;i<=16;i++) {
     const id = `demo-${i}`, n = String(i).padStart(2,'0'), status = i === 7 ? 'offline' : i === 12 || i === 15 ? 'partial' : 'online';

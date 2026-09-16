@@ -19,6 +19,7 @@ type Result struct {
 	CommandID string `json:"commandId"`
 	Output    string `json:"output"`
 	Error     string `json:"error,omitempty"`
+	Warning   string `json:"warning,omitempty"`
 	Truncated bool   `json:"truncated"`
 }
 type State struct {
@@ -28,6 +29,7 @@ type State struct {
 	UpdatedAt   time.Time  `json:"updatedAt"`
 	LastSuccess time.Time  `json:"lastSuccess"`
 	DurationMs  int64      `json:"durationMs"`
+	Reconnects  int        `json:"reconnects,omitempty"`
 	Fingerprint string     `json:"fingerprint,omitempty"`
 	Address     string     `json:"address,omitempty"`
 	KeyChanged  bool       `json:"keyChanged,omitempty"`
@@ -119,14 +121,17 @@ func (m *Monitor) worker(ctx context.Context, host Machine, profile Profile, int
 	var client *ssh.Client
 	var conn net.Conn
 	last := time.Time{}
-	defer func() {
+	closeConnection := func() {
 		if client != nil {
 			client.Close()
+			client = nil
 		}
 		if conn != nil {
 			conn.Close()
+			conn = nil
 		}
-	}()
+	}
+	defer closeConnection()
 	for {
 		select {
 		case <-ctx.Done():
@@ -141,23 +146,32 @@ func (m *Monitor) worker(ctx context.Context, host Machine, profile Profile, int
 			client, conn, err = dial(ctx, addr, profile, m.trust.Callback(addr, autoTrust))
 		}
 		if err == nil {
-			activeConn := conn
-			stop := context.AfterFunc(ctx, func() { activeConn.Close() })
+			retryAvailable := true
 			for _, id := range host.Commands {
 				cmd, _ := commandByID(id)
-				_ = conn.SetDeadline(time.Now().Add(m.commandTimeout))
-				r, transportErr := run(client, cmd)
+				r, transportErr := runWithDeadline(ctx, client, conn, cmd, m.commandTimeout)
+				// Only the fixed read-only monitoring commands may be repeated. Retry
+				// transport failures once per sample, never ordinary nonzero exits.
+				if transportErr != nil && retryAvailable && ctx.Err() == nil {
+					retryAvailable = false
+					s.Reconnects++
+					closeConnection()
+					client, conn, err = dial(ctx, addr, profile, m.trust.Callback(addr, autoTrust))
+					if err != nil {
+						transportErr = err
+					} else {
+						r, transportErr = runWithDeadline(ctx, client, conn, cmd, m.commandTimeout)
+					}
+				}
 				s.Results = append(s.Results, r)
 				if transportErr != nil {
-					err = transportErr
+					err = fmt.Errorf("%s：%w", cmd.Name, transportErr)
 					break
 				}
-				if r.Error != "" {
+				if r.Error != "" || r.Warning != "" {
 					s.Status = "partial"
 				}
 			}
-			stop()
-			_ = conn.SetDeadline(time.Time{})
 		}
 		if err != nil {
 			s.Status = "offline"
@@ -174,14 +188,7 @@ func (m *Monitor) worker(ctx context.Context, host Machine, profile Profile, int
 					s.AutoTrustAt = &deadline
 				}
 			}
-			if client != nil {
-				client.Close()
-				client = nil
-			}
-			if conn != nil {
-				conn.Close()
-				conn = nil
-			}
+			closeConnection()
 		} else {
 			last = time.Now()
 			s.LastSuccess = last
@@ -253,10 +260,20 @@ func (b *boundedOutput) Write(p []byte) (int, error) {
 	b.b.Write(p)
 	return n, nil
 }
+
+func runWithDeadline(ctx context.Context, client *ssh.Client, conn net.Conn, cmd Command, timeout time.Duration) (Result, error) {
+	stop := context.AfterFunc(ctx, func() { conn.Close() })
+	defer stop()
+	_ = conn.SetDeadline(time.Now().Add(timeout))
+	defer conn.SetDeadline(time.Time{})
+	return run(client, cmd)
+}
+
 func run(client *ssh.Client, cmd Command) (Result, error) {
 	r := Result{CommandID: cmd.ID}
 	s, err := client.NewSession()
 	if err != nil {
+		r.Error = err.Error()
 		return r, err
 	}
 	defer s.Close()
@@ -269,6 +286,18 @@ func run(client *ssh.Client, cmd Command) (Result, error) {
 	r.Truncated = out.truncated
 	if err != nil {
 		r.Error = err.Error()
+		var missing *ssh.ExitMissingError
+		if errors.As(err, &missing) {
+			// Missing status can mean either an incomplete server implementation or a
+			// lost SSH transport. A reply (including "unsupported") proves it is alive.
+			// This request shares the command deadline, so it cannot hang indefinitely.
+			if _, _, probeErr := client.SendRequest("keepalive@openssh.com", true, nil); probeErr != nil {
+				return r, fmt.Errorf("SSH 连接不可用（%s）：%w", err, probeErr)
+			}
+			r.Error = ""
+			r.Warning = "SSH 服务未返回命令退出状态，输出可能不完整；连接仍可用。"
+			return r, nil
+		}
 		var exitErr *ssh.ExitError
 		if !errors.As(err, &exitErr) {
 			return r, err

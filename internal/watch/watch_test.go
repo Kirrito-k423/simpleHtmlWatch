@@ -126,14 +126,22 @@ func TestHTTPBoundary(t *testing.T) {
 }
 
 type fixture struct {
-	listener      net.Listener
-	signer        ssh.Signer
-	authenticated atomic.Int32
-	firstAuthAt   atomic.Int64
-	connections   atomic.Int32
-	hanging       atomic.Bool
-	stop          chan struct{}
-	wg            sync.WaitGroup
+	listener        net.Listener
+	signer          ssh.Signer
+	authenticated   atomic.Int32
+	firstAuthAt     atomic.Int64
+	connections     atomic.Int32
+	hanging         atomic.Bool
+	omitExitStatus  atomic.Bool
+	dropNPUOnce     atomic.Bool
+	dropAllNPU      atomic.Bool
+	failNPU         atomic.Bool
+	emptyNPU        atomic.Bool
+	ignoreKeepalive atomic.Bool
+	npuRuns         atomic.Int32
+	activeConns     sync.Map
+	stop            chan struct{}
+	wg              sync.WaitGroup
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -167,13 +175,21 @@ func newFixture(t *testing.T) *fixture {
 			go func() {
 				defer f.wg.Done()
 				defer conn.Close()
+				f.activeConns.Store(conn, true)
+				defer f.activeConns.Delete(conn)
 				_ = conn.SetDeadline(time.Now().Add(20 * time.Second))
 				c, ch, req, err := ssh.NewServerConn(conn, cfg)
 				if err != nil {
 					return
 				}
 				defer c.Close()
-				go ssh.DiscardRequests(req)
+				go func() {
+					for request := range req {
+						if request.WantReply && !f.ignoreKeepalive.Load() {
+							_ = request.Reply(false, nil)
+						}
+					}
+				}()
 				for channel := range ch {
 					if channel.ChannelType() != "session" {
 						_ = channel.Reject(ssh.UnknownChannelType, "session only")
@@ -204,7 +220,20 @@ func newFixture(t *testing.T) *fixture {
 							}
 							code := uint32(0)
 							if strings.Contains(v.Command, "npu-smi") {
-								_, _ = io.WriteString(stream, "NPU 0 OK\n")
+								f.npuRuns.Add(1)
+								if f.failNPU.Load() {
+									_, _ = io.WriteString(stream.Stderr(), "npu-smi: command not found\n")
+									code = 127
+								} else if !f.emptyNPU.Load() {
+									_, _ = io.WriteString(stream, "NPU 0 OK\n")
+								}
+								if f.dropAllNPU.Load() || f.dropNPUOnce.CompareAndSwap(true, false) {
+									conn.Close()
+									return
+								}
+								if f.omitExitStatus.Load() {
+									return
+								}
 							} else if strings.Contains(v.Command, "ps -ef") {
 								_, _ = io.WriteString(stream, "root 42 1 python train.py\n")
 							} else {
@@ -221,6 +250,10 @@ func newFixture(t *testing.T) *fixture {
 	}()
 	t.Cleanup(func() { close(f.stop); l.Close(); f.wg.Wait() })
 	return f
+}
+
+func (f *fixture) closeConnections() {
+	f.activeConns.Range(func(conn, _ any) bool { _ = conn.(net.Conn).Close(); return true })
 }
 func waitState(t *testing.T, m *Monitor, predicate func(map[string]State) bool) map[string]State {
 	t.Helper()

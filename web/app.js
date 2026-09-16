@@ -57,16 +57,28 @@ function setGroups() {
 }
 function time(t) { return !t || t.startsWith('0001') ? '尚未采集' : new Date(t).toLocaleTimeString('zh-CN', {hour12:false}); }
 function autoTrustSeconds(s) { return Math.max(0, Math.ceil((Date.parse(s.autoTrustAt) - Date.now()) / 1000)); }
-function stateLabel(s) { return s.status === 'untrusted' && s.autoTrustAt ? `${autoTrustSeconds(s)}s 后信任` : labels[s.status] || s.status; }
+function stateLabel(s) {
+  if (s.status === 'untrusted' && s.autoTrustAt) return `${autoTrustSeconds(s)}s 后信任`;
+  if (s.status === 'partial' && s.results?.some(r => r.warning) && !s.results.some(r => r.error)) return '退出未确认';
+  return labels[s.status] || s.status;
+}
+function resultText(r) {
+  const empty = r.error ? '' : r.warning ? '未获得命令输出。' : r.commandId === 'python' || r.commandId === 'usage' ? '未发现匹配的进程。' : '命令未返回输出。';
+  return (r.output || empty) + (r.error ? `\n[命令失败] ${r.error}` : '') + (r.warning ? `\n[采集提示] ${r.warning}` : '') + (r.truncated ? '\n[输出超过 256 KiB，已截断]' : '');
+}
 function textFor(m, s, selected) {
   if (!m.enabled) return '此机器已停用。可在「管理机器」中重新启用。';
   if (s.status === 'untrusted' && s.autoTrustAt) return `首次连接：${autoTrustSeconds(s)} 秒后自动信任并连接。\n\n${s.fingerprint}\n\n无需点击，浏览器关闭后仍会继续。`;
   if (s.status === 'untrusted') return `${s.keyChanged ? '主机密钥已变化，请重新核对。' : '首次连接，需要确认主机身份。'}\n\n${s.fingerprint}\n\n确认后才会使用 SSH 密码登录。`;
-  if (s.status === 'offline') return `连接失败\n${s.error}\n\n将自动重试。最近连接成功：${time(s.lastSuccess)}`;
+  if (s.status === 'offline') {
+    const r = s.results?.find(r => r.commandId === selected);
+    const failure = `连接失败\n${s.error}\n\n将自动重试。最近连接成功：${time(s.lastSuccess)}`;
+    return r?.output ? `${resultText(r)}\n\n[本轮采集未完成，以上为已收到的输出]\n${failure}` : failure;
+  }
   if (!m.commands.includes(selected)) return '此机器尚未启用该监控项。\n可在「管理机器」中勾选。';
   const r = s.results?.find(r => r.commandId === selected);
   if (!r) return '正在等待采集…';
-  return (r.output || (r.error ? '' : '未发现匹配的进程。')) + (r.error ? `\n[命令失败] ${r.error}` : '') + (r.truncated ? '\n[输出超过 256 KiB，已截断]' : '');
+  return resultText(r);
 }
 function render() {
   const query = $('#search').value.toLowerCase().trim(), group = $('#group-filter').value, size = Number($('#layout').value);
@@ -99,7 +111,7 @@ function render() {
     $('.host', card).textContent = `${m.host}:${m.port}`;
     $('.group', card).textContent = m.group || '未分组';
     const out = $('.card-output', card), value = textFor(m, s, view);
-    const message = !['online','partial'].includes(s.status);
+    const message = !['online','partial'].includes(s.status) && !s.results?.find(r => r.commandId === view)?.output;
     const sample = s.updatedAt || '';
     const changed = out.textContent !== value || out.dataset.command !== view || out.dataset.sample !== sample || out.classList.contains('message') !== message;
     if (out.textContent !== value) out.textContent = value;
@@ -107,7 +119,7 @@ function render() {
     out.dataset.sample = sample;
     out.classList.toggle('message', message);
     if (changed) positionOutput(out);
-    const updated = `${time(s.updatedAt)}${s.durationMs != null ? ` · ${s.durationMs} ms` : ''}`;
+    const updated = `${time(s.updatedAt)}${s.durationMs != null ? ` · ${s.durationMs} ms` : ''}${s.reconnects ? ` · 自动重连 ${s.reconnects} 次` : ''}`;
     badge.title = `${stateLabel(s)} · ${updated}`;
     badge.setAttribute('aria-label', badge.title);
     $('.card-head', card).title = `${m.name} · ${m.host}:${m.port} · ${m.group || '未分组'} · ${updated}`;
@@ -226,10 +238,10 @@ $('#import-file').onchange = async e => {
 function enterDemo() {
   demo = true; paused = false; $('#pause-btn').textContent = 'Ⅱ 暂停'; states = {}; config = {interval:4,autoTrustNewKeys:true,profiles:[],machines:[]};
   for (let i=1;i<=16;i++) {
-    const id = `demo-${i}`, n = String(i).padStart(2,'0'), status = i === 7 ? 'offline' : i === 12 ? 'partial' : 'online';
+    const id = `demo-${i}`, n = String(i).padStart(2,'0'), status = i === 7 ? 'offline' : i === 12 || i === 15 ? 'partial' : 'online';
     config.machines.push({id,name:`ascend-${n}`,host:`192.0.2.${10+i}`,port:22,group:i<9?'训练集群':'开发集群',profileId:'demo',commands:['npu','python','usage'],enabled:true});
     const npu = ['+--------------------------------------------------+','| NPU   Name           Health   Power(W)  Temp(C)   |','| Chip  AICore(%)       Memory-Usage(MB)             |','+--------------------------------------------------+', ...Array.from({length:4},(_,j)=>`| ${j}     Ascend 910B     OK       ${260+i+j}        ${48+j}      |\n|       ${String((i*7+j*13)%98).padStart(2)}%              ${28000+i*127} / 65536          |`),'+--------------------------------------------------+'].join('\n');
-    states[id] = {machineId:id,status,error:status==='offline'?'演示：SSH 连接超时':'',updatedAt:new Date().toISOString(),lastSuccess:new Date().toISOString(),durationMs:130+i*13,results:[{commandId:'npu',output:status==='partial'?'bash: npu-smi: command not found':npu,error:status==='partial'?'演示：exit status 127':''},{commandId:'python',output:`UID        PID  PPID  C STIME TTY      TIME CMD\nroot      ${2100+i}     1 97 09:30 ?    02:31:42 python train.py --rank 0\nroot      ${2200+i}     1 95 09:30 ?    02:28:15 python train.py --rank 1`},{commandId:'usage',output:`USER   PID  PPID %CPU %MEM    RSS   ELAPSED COMMAND\nroot  ${2100+i}    1 97.3  3.2 831220  02:31:42 python train.py\nroot  ${2200+i}    1 95.1  3.0 801210  02:28:15 python train.py`}]};
+    states[id] = {machineId:id,status,error:status==='offline'?'演示：SSH 连接超时':'',updatedAt:new Date().toISOString(),lastSuccess:new Date().toISOString(),durationMs:130+i*13,results:[{commandId:'npu',output:i===12?'bash: npu-smi: command not found':npu,error:i===12?'演示：exit status 127':'',warning:i===15?'演示：SSH 服务未返回命令退出状态，输出可能不完整；连接仍可用。':''},{commandId:'python',output:`UID        PID  PPID  C STIME TTY      TIME CMD\nroot      ${2100+i}     1 97 09:30 ?    02:31:42 python train.py --rank 0\nroot      ${2200+i}     1 95 09:30 ?    02:28:15 python train.py --rank 1`},{commandId:'usage',output:`USER   PID  PPID %CPU %MEM    RSS   ELAPSED COMMAND\nroot  ${2100+i}    1 97.3  3.2 831220  02:31:42 python train.py\nroot  ${2200+i}    1 95.1  3.0 801210  02:28:15 python train.py`}]};
   }
   page=0; $('#search').value=''; setGroups(); render();
 }

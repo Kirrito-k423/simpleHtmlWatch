@@ -14,7 +14,7 @@ for target in windows/amd64 windows/arm64 darwin/arm64 darwin/amd64 linux/amd64 
   CGO_ENABLED=0 GOOS="$target_os" GOARCH="$target_arch" go build -trimpath -ldflags "-s -w -X main.version=${version}" -o "$folder/$executable" .
   cp README.md LICENSE "$folder/"
   mkdir -p "$folder/docs"
-  cp docs/dashboard.png "$folder/docs/"
+  cp docs/dashboard.png docs/troubleshooting.md "$folder/docs/"
   if [[ "$target_os" == windows ]]; then
     (cd dist && zip -qr "${package}.zip" "$package")
   else

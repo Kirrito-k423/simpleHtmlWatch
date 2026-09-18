@@ -28,3 +28,4 @@ jobs:
         with:
           node-version: '22'
       - run: node --check web/app.js
+      - run: node --test tests/*.test.cjs

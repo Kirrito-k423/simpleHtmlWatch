@@ -119,3 +119,6 @@ footer i{display:inline-block;width:5px;height:5px;border-radius:50%;background:
   .setup-steps{gap:10px;flex-direction:column}.empty h2{font-size:20px}.empty p{font-size:12px}.empty{padding:20px}
   .detail-dialog pre{font-size:11px}footer{flex-wrap:wrap;padding:4px 0;gap:4px}
 }
+
+.pagination-controls{display:flex;align-items:center;gap:5px}
+#auto-page{font-size:10px;padding:1px 5px;height:22px}#rotation-status{font-size:10px;min-width:65px;text-align:right}

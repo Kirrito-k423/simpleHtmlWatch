@@ -7,6 +7,31 @@ const token = $('meta[name="watch-token"]').content;
 let config = {machines:[], profiles:[], interval:4, autoTrustNewKeys:true}, commands = [], states = {}, view = 'npu', page = 0;
 let paused = false, demo = false, draft, detailID, detailView, trustPending, busy = false, toastTimer;
 let backendOK = true, customID = '';
+const rotation = new PageRotation();
+let pageCount = 0, paginationKey = '';
+try { rotation.setSeconds(Number(localStorage.getItem('watch.pageRotation'))); } catch { /* Optional browser preference. */ }
+$('#auto-page').value = String(rotation.seconds);
+function rotationBlocked() {
+  return paused || busy || document.hidden || !!$('dialog[open]') || !!document.activeElement?.matches('input,textarea');
+}
+function renderRotationStatus() {
+  $('#rotation-status').textContent = !rotation.seconds ? '' : pageCount <= 1 ? '无需翻页' : rotationBlocked() ? '翻页已暂停' : `${rotation.remaining()}s 后翻页`;
+}
+function resetRotation() { rotation.reset(); renderRotationStatus(); }
+$('#auto-page').onchange = () => {
+  rotation.setSeconds(Number($('#auto-page').value));
+  try { localStorage.setItem('watch.pageRotation', String(rotation.seconds)); } catch { /* Optional browser preference. */ }
+  renderRotationStatus();
+};
+document.addEventListener('visibilitychange', resetRotation);
+document.addEventListener('focusin', resetRotation);
+document.addEventListener('focusout', resetRotation);
+$$('dialog').forEach(dialog => dialog.addEventListener('close', resetRotation));
+setInterval(() => {
+  const next = rotation.advance(page, pageCount, rotationBlocked());
+  if (next !== page) { page = next; render(); positionAllOutputs(); }
+  else renderRotationStatus();
+}, 1000);
 const customEdits = new Map();
 const savedCustoms = () => config.customCommands || [];
 function customChoices() { return [...savedCustoms(), ...[...customEdits.values()].filter(c => !savedCustoms().some(s => s.id === c.id))]; }
@@ -113,7 +138,11 @@ function render() {
   $$('#view-tabs button').forEach(el => el.classList.toggle('active', el.dataset.view === view));
   const query = $('#search').value.toLowerCase().trim(), group = $('#group-filter').value, size = Number($('#layout').value);
   const filtered = config.machines.filter(m => (!group || m.group === group) && `${m.name} ${m.host}`.toLowerCase().includes(query));
-  page = Math.max(0, Math.min(page, Math.ceil(filtered.length / size) - 1));
+  pageCount = Math.ceil(filtered.length / size);
+  const key = `${size}:${filtered.map(m => m.id).join('|')}`;
+  if (key !== paginationKey) { paginationKey = key; rotation.reset(); }
+  page = Math.max(0, Math.min(page, pageCount - 1));
+  renderRotationStatus();
   $('#total').textContent = String(config.machines.length).padStart(2, '0');
   $('#online').textContent = String(Object.values(states).filter(s => s.status === 'online').length).padStart(2, '0');
   $('#attention').textContent = String(Object.values(states).filter(s => ['offline','partial','untrusted'].includes(s.status)).length).padStart(2, '0');
@@ -207,9 +236,9 @@ for (const id of ['custom-name','custom-shell']) $('#'+id).oninput = () => {
   customEdits.set(customID, {id:customID, name:$('#custom-name').value, shell:$('#custom-shell').value, enabled:false});
   renderCustomControls();
 };
-for (const id of ['search','group-filter','layout']) $('#' + id).addEventListener(id === 'search' ? 'input' : 'change', () => { page = 0; render(); positionAllOutputs(); });
-$('#prev-btn').onclick = () => { page--; render(); }; $('#next-btn').onclick = () => { page++; render(); };
-$('#pause-btn').onclick = () => { paused = !paused; $('#pause-btn').textContent = paused ? '▶ 恢复' : 'Ⅱ 暂停'; render(); };
+for (const id of ['search','group-filter','layout']) $('#' + id).addEventListener(id === 'search' ? 'input' : 'change', () => { page = 0; resetRotation(); render(); positionAllOutputs(); });
+$('#prev-btn').onclick = () => { page--; resetRotation(); render(); }; $('#next-btn').onclick = () => { page++; resetRotation(); render(); };
+$('#pause-btn').onclick = () => { paused = !paused; $('#pause-btn').textContent = paused ? '▶ 恢复' : 'Ⅱ 暂停'; resetRotation(); render(); };
 $('#refresh-btn').onclick = async () => { if (demo) return toast('当前是演示数据'); try { await api('refresh','POST'); toast('已请求刷新'); } catch(e) { toast(e.message); } };
 $('#fullscreen-btn').onclick = async () => { try { if (document.fullscreenElement) await document.exitFullscreen(); else await document.documentElement.requestFullscreen(); } catch(e) { toast('浏览器未允许全屏，请尝试按 F11'); } };
 document.addEventListener('fullscreenchange', () => { $('#fullscreen-btn').textContent = document.fullscreenElement ? '⛶ 退出全屏' : '⛶ 全屏'; $('#fullscreen-btn').setAttribute('aria-pressed', !!document.fullscreenElement); });
@@ -312,7 +341,9 @@ $('#import-file').onchange = async e => {
 function enterDemo() {
   customEdits.clear(); customID = ''; view = 'npu';
   demo = true; paused = false; $('#pause-btn').textContent = 'Ⅱ 暂停'; states = {}; config = {interval:4,autoTrustNewKeys:true,profiles:[],machines:[],customCommands:[]}; syncCustomEditor();
-  for (let i=1;i<=16;i++) {
+  const requested = Number(new URLSearchParams(location.search).get('demoMachines'));
+  const demoCount = Number.isInteger(requested) && requested >= 1 && requested <= 200 ? requested : 16;
+  for (let i=1;i<=demoCount;i++) {
     const id = `demo-${i}`, n = String(i).padStart(2,'0'), status = i === 7 ? 'offline' : i === 12 || i === 15 ? 'partial' : 'online';
     config.machines.push({id,name:`ascend-${n}`,host:`192.0.2.${10+i}`,port:22,group:i<9?'训练集群':'开发集群',profileId:'demo',commands:['npu','python','usage'],enabled:true});
     const npu = ['+--------------------------------------------------+','| NPU   Name           Health   Power(W)  Temp(C)   |','| Chip  AICore(%)       Memory-Usage(MB)             |','+--------------------------------------------------+', ...Array.from({length:4},(_,j)=>`| ${j}     Ascend 910B     OK       ${260+i+j}        ${48+j}      |\n|       ${String((i*7+j*13)%98).padStart(2)}%              ${28000+i*127} / 65536          |`),'+--------------------------------------------------+'].join('\n');

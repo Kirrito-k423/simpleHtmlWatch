@@ -5,7 +5,7 @@
   <meta name="watch-token" content="__WATCH_TOKEN__">
   <title>simpleHtmlWatch · 机器监控</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%23c4f36a'/%3E%3Cpath d='M8 23h7l4-12 5 20 3-8h5' fill='none' stroke='%23121b12' stroke-width='3'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script>
+  <link rel="stylesheet" href="/style.css"><script src="/page-rotation.js" defer></script><script src="/app.js" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -26,7 +26,7 @@
     <div id="connection-error" class="notice" hidden></div>
     <section id="empty" class="empty" hidden><span class="empty-icon">⌁</span><div class="eyebrow">YOUR MACHINES. YOUR VIEW.</div><h2>把终端里的机器，放到同一个页面。</h2><p>创建一组共享凭据，添加机器，就能开始监控。<br>无需远程安装组件，最多 16 台同屏。</p><div><button id="empty-add" class="primary">＋ 添加第一台机器</button><button id="demo-btn">体验 16 台演示</button></div><div class="setup-steps"><span><b>01</b> 保存共享凭据</span><span><b>02</b> 批量添加机器</span><span><b>03</b> 等待 5 秒，自动连接</span></div></section>
     <section id="grid" class="machine-grid" aria-label="机器监控卡片"></section>
-    <footer><span id="live-status"><i></i> 自动刷新</span><span id="page-info"></span><div><button id="prev-btn" aria-label="上一页">←</button><button id="next-btn" aria-label="下一页">→</button><button id="exit-demo" hidden>退出演示</button></div></footer>
+    <footer><span id="live-status"><i></i> 自动刷新</span><span id="page-info"></span><div class="pagination-controls"><span id="rotation-status"></span><select id="auto-page" aria-label="自动翻页" title="按所选间隔循环翻页；后台持续采集全部已启用机器"><option value="0">自动翻页 · 关闭</option><option value="10">翻页 · 10 秒</option><option value="15">翻页 · 15 秒</option><option value="30">翻页 · 30 秒</option><option value="60">翻页 · 60 秒</option></select><button id="prev-btn" aria-label="上一页">←</button><button id="next-btn" aria-label="下一页">→</button><button id="exit-demo" hidden>退出演示</button></div></footer>
   </main>
   <dialog id="settings-dialog" class="settings-dialog">
     <form id="settings-form"><div class="dialog-heading"><div><div class="eyebrow">WORKSPACE SETTINGS</div><h2>管理机器与共享凭据</h2></div><button type="button" data-close="settings-dialog" aria-label="关闭设置">✕</button></div>

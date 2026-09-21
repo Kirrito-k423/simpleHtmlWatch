@@ -353,4 +353,4 @@ function enterDemo() {
 }
 $('#demo-btn').onclick = enterDemo;
 $('#exit-demo').onclick = async () => { try { await loadConfig(); demo=false; states={}; page=0; render(); } catch(e) { toast(e.message); } };
-(async () => { try { await loadConfig(); render(); if (new URLSearchParams(location.search).get('demo') === '1') enterDemo(); } catch(e) { $('#connection-error').hidden=false; $('#connection-error').textContent=e.message; } poll(); })();
+(async () => { try { await loadConfig(); render(); if (new URLSearchParams(location.search).get('demo') === '1') enterDemo(); window.startHistoryPrototype(); } catch(e) { $('#connection-error').hidden=false; $('#connection-error').textContent=e.message; } poll(); })();

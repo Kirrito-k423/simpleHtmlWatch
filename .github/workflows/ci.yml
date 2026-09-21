@@ -29,4 +29,5 @@ jobs:
           node-version: '22'
       - run: node --check web/app.js
       - run: node --check web/history.js
+      - run: node --check web/execution.js
       - run: node --test tests/*.test.cjs

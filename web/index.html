@@ -5,7 +5,7 @@
   <meta name="watch-token" content="__WATCH_TOKEN__">
   <title>simpleHtmlWatch · 机器监控</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%23c4f36a'/%3E%3Cpath d='M8 23h7l4-12 5 20 3-8h5' fill='none' stroke='%23121b12' stroke-width='3'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="/style.css"><script src="/page-rotation.js" defer></script><script src="/app.js" defer></script><script src="/history.js" defer></script><link rel="stylesheet" href="/history.css">
+  <link rel="stylesheet" href="/style.css"><script src="/page-rotation.js" defer></script><script src="/app.js" defer></script><script src="/history.js" defer></script><script src="/execution.js" defer></script><link rel="stylesheet" href="/execution.css"><link rel="stylesheet" href="/history.css">
 </head>
 <body>
   <header class="topbar">
@@ -16,7 +16,7 @@
       <div class="tabs" id="view-tabs"><button data-view="npu" class="active">NPU 状态</button><button data-view="python">Python 进程</button><button data-view="usage">CPU / 内存</button><button data-view="custom">自定义</button></div>
       <div class="filters"><input id="search" type="search" placeholder="名称 / IP" aria-label="搜索机器"><select id="group-filter" aria-label="机器分组"><option value="">所有分组</option></select><select id="layout" aria-label="同屏台数"><option value="2">2 台 / 屏</option><option value="4">4 台 / 屏</option><option value="8">8 台 / 屏</option><option value="16" selected>16 台 / 屏</option></select><select id="output-position" aria-label="内容位置" title="统一定位所有机器输出的可见区域"><option value="top-left" selected>正文 · 左上</option><option value="top-right">正文 · 右上</option><option value="center">正文 · 居中</option><option value="bottom-left">正文 · 左下</option><option value="bottom-right">正文 · 右下</option></select><button id="refresh-btn" title="立即采集" aria-label="立即采集">↻</button><button id="pause-btn" title="暂停本页面显示更新，后台继续采集">Ⅱ 暂停</button></div>
     </div>
-    <div class="top-actions"><button id="history-btn">◷ 历史记录</button><button id="settings-btn">⚙ 管理机器</button><button id="fullscreen-btn" title="进入全屏，按 Esc 退出">⛶ 全屏</button></div>
+    <div class="top-actions"><button id="execution-btn">批量执行</button><button id="history-btn">◷ 历史记录</button><button id="settings-btn">⚙ 管理机器</button><button id="fullscreen-btn" title="进入全屏，按 Esc 退出">⛶ 全屏</button></div>
   </header>
   <main>
     <form id="custom-form" class="custom-bar" hidden>
@@ -42,5 +42,17 @@
   <dialog id="batch-dialog"><div class="dialog-heading"><h2>批量添加机器</h2><button data-close="batch-dialog" aria-label="关闭批量添加">✕</button></div><div class="batch-body"><label>使用共享凭据<select id="batch-profile"></select></label><label>每行一台：IP 或 名称,IP,分组<textarea id="batch-input" rows="9" placeholder="192.0.2.11&#10;训练机-02,192.0.2.12,训练集群&#10;训练机-03,192.0.2.13:2222,训练集群"></textarea></label><p>默认开启 NPU 状态、Python 进程和 CPU / 内存。</p><p id="batch-error" class="form-error"></p></div><div class="dialog-footer"><span></span><button id="batch-confirm" class="primary">添加到列表</button></div></dialog>
   <dialog id="detail-dialog" class="detail-dialog"><div class="dialog-heading"><div><h2 id="detail-title"></h2><p id="detail-subtitle"></p></div><button data-close="detail-dialog" aria-label="关闭详情">✕</button></div><div id="detail-tabs" class="tabs"></div><pre id="detail-output"></pre></dialog>
   <dialog id="trust-dialog"><div class="dialog-heading"><h2 id="trust-title">确认 SSH 主机指纹</h2><button data-close="trust-dialog" aria-label="关闭指纹确认">✕</button></div><div class="batch-body"><p>与管理员或机器控制台显示的指纹核对一致后，再信任此机器。</p><code id="trust-address"></code><pre id="trust-fingerprint"></pre><p>可在机器控制台执行：</p><code class="wrap">ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub -E sha256</code><p class="muted">请根据服务器实际协商的密钥类型核对相应 .pub 文件。</p><p id="trust-error" class="form-error"></p></div><div class="dialog-footer"><button data-close="trust-dialog">取消</button><button id="trust-confirm" class="primary">已核对，信任此指纹</button></div></dialog>
+  <dialog id="execution-dialog" class="execution-dialog">
+    <div class="dialog-heading"><div><h2>批量执行 · 一次性命令</h2><p>使用已有 SSH 凭据，只在勾选的机器上执行一次。</p></div><button id="execution-close" aria-label="关闭批量执行">✕</button></div>
+    <div class="execution-body"><div id="execution-error" class="form-error" role="alert"></div>
+      <div id="execution-edit"><div class="execution-controls"><input id="execution-filter" type="search" placeholder="筛选名称 / IP / 分组" aria-label="筛选执行机器"><button id="execution-select">勾选筛选结果</button><button id="execution-clear">取消全部</button><span id="execution-count"></span></div><div id="execution-machines"></div>
+        <div class="execution-controls"><label>常用指令 <select id="execution-preset"><option value="custom">自定义</option><option value="pgrep">查找进程 · pgrep</option><option value="pkill">终止进程 · pkill</option></select></label><input id="execution-pattern" placeholder="匹配表达式，例如 [t]ilexr" aria-label="进程匹配表达式"><button id="execution-template">填入命令</button></div>
+        <label>单次命令<textarea id="execution-shell" rows="3" maxlength="4096" spellcheck="false" placeholder="例如 pgrep -af -- '[t]ilexr'" aria-label="单次执行命令"></textarea></label>
+        <p>每台机器独立连接，最多 4 台并发，命令超时 12 秒，不自动重试。不会保存成定时 watch。pkill 会终止匹配的任务，可先用 pgrep 核对匹配范围。</p><button id="execution-review" class="primary">查看执行范围</button>
+      </div>
+      <section id="execution-review-panel" hidden><h3>本次执行范围</h3><pre id="execution-review-command"></pre><ul id="execution-review-targets"></ul><p>将以列表中的 SSH 用户执行。开始后关闭此弹窗不取消任务；结果未知时请检查机器实际状态。</p><div class="execution-controls"><button id="execution-back">返回修改</button><button id="execution-submit" class="primary">执行一次</button></div></section>
+      <div class="execution-controls"><label>最近执行 <select id="execution-jobs" aria-label="最近批量执行"></select></label><button id="execution-refresh">刷新结果</button></div><section id="execution-results"></section>
+    </div>
+  </dialog>
   <div id="toast" role="status" hidden></div>
 </body></html>

@@ -37,5 +37,5 @@ class PrototypeHandler(SimpleHTTPRequestHandler):
     def log_message(self, *_):
         pass
 
-print(f'PROTOTYPE — 模拟数据 / 内存记录 / 不连接 SSH\nhttp://127.0.0.1:{PORT}/?demo=1&prototype=history&variant=A', flush=True)
+print(f'PROTOTYPE — 模拟数据 / 内存记录 / 不连接 SSH\nhttp://127.0.0.1:{PORT}/?demo=1&prototype=history&variant=C', flush=True)
 ThreadingHTTPServer(('127.0.0.1', PORT), PrototypeHandler).serve_forever()

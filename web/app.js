@@ -12,7 +12,7 @@ let pageCount = 0, paginationKey = '';
 try { rotation.setSeconds(Number(localStorage.getItem('watch.pageRotation'))); } catch { /* Optional browser preference. */ }
 $('#auto-page').value = String(rotation.seconds);
 function rotationBlocked() {
-  return paused || busy || document.hidden || !!$('dialog[open]') || !!document.activeElement?.matches('input,textarea');
+  return document.body.classList.contains("history-mode") || paused || busy || document.hidden || !!$('dialog[open]') || !!document.activeElement?.matches('input,textarea');
 }
 function renderRotationStatus() {
   $('#rotation-status').textContent = !rotation.seconds ? '' : pageCount <= 1 ? '无需翻页' : rotationBlocked() ? '翻页已暂停' : `${rotation.remaining()}s 后翻页`;
@@ -56,7 +56,7 @@ function renderCustomControls() {
   $('#custom-add').disabled = busy || choices.length >= 32;
   $('#custom-stop').disabled = busy || !selected?.enabled;
   $('#custom-status').textContent = selected?.enabled ? `全部启用机器 · ${config.interval}s · ${demo ? '模拟输出' : '运行中'}` : '全部启用机器 · 已停止';
-  $('#custom-status').title = selected?.enabled ? `正在执行：${selected.shell}；切换指令仍继续采集，点击停止结束。` : '星号表示尚未保存的编辑';
+  $('#custom-status').title = selected?.enabled ? `每 ${config.interval}s 采样（watch 自带间隔以此为准）：${selected.shell}；切换指令仍继续采集。` : '星号表示尚未保存的编辑';
 }
 const outputAnchors = {'top-left':[0,0], 'top-right':[1,0], center:[0.5,0.5], 'bottom-left':[0,1], 'bottom-right':[1,1]};
 let outputPosition = 'top-left';

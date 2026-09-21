@@ -55,9 +55,8 @@ func (c CustomCommand) Validate() error {
 	if c.Enabled && strings.TrimSpace(c.Shell) == "" {
 		return errors.New("请输入自定义指令")
 	}
-	fields := strings.Fields(c.Shell)
-	if len(fields) > 0 && (fields[0] == "watch" || strings.HasSuffix(fields[0], "/watch")) {
-		return errors.New("无需添加 watch，请直接填写单次命令，例如 ps -ef | grep tilexr；程序会自动定时执行")
+	if _, err := NormalizeWatch(c.Shell); err != nil {
+		return err
 	}
 	return nil
 }

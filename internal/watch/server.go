@@ -11,17 +11,18 @@ import (
 )
 
 type Server struct {
-	store   *Store
-	monitor *Monitor
-	trust   *TrustStore
-	assets  fs.FS
-	host    string
-	token   string
-	mu      sync.Mutex
+	executor *Executor
+	store    *Store
+	monitor  *Monitor
+	trust    *TrustStore
+	assets   fs.FS
+	host     string
+	token    string
+	mu       sync.Mutex
 }
 
 func NewServer(s *Store, m *Monitor, t *TrustStore, assets fs.FS, host string) *Server {
-	return &Server{store: s, monitor: m, trust: t, assets: assets, host: host, token: randomToken()}
+	return &Server{executor: NewExecutor(t), store: s, monitor: m, trust: t, assets: assets, host: host, token: randomToken()}
 }
 func jsonResponse(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -91,6 +92,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	http.FileServer(http.FS(s.assets)).ServeHTTP(w, r)
 }
 func (s *Server) api(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/api/executions" {
+		s.executionAPI(w, r)
+		return
+	}
 	if strings.HasPrefix(r.URL.Path, "/api/history/") {
 		s.historyAPI(w, r)
 		return
@@ -191,3 +196,5 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(404)
 	}
 }
+
+func (s *Server) Close() { s.executor.Close() }

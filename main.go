@@ -74,6 +74,7 @@ func start() error {
 	defer monitor.Close()
 	web, _ := fs.Sub(assets, "web")
 	app := watch.NewServer(store, monitor, trust, web, listener.Addr().String())
+	defer app.Close()
 	server := &http.Server{Handler: app, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 40 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 * 1024}
 	url := "http://" + listener.Addr().String()
 	fmt.Printf("\nsimpleHtmlWatch %s\n\n监控页面：%s\n本机配置：%s\n保持此窗口运行，按 Ctrl+C 退出。\n\n", version, url, *dir)

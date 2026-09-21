@@ -9,6 +9,7 @@ window.startHistoryPrototype = function () {
   const hosts = Array.from({length:16},(_,i)=>`ascend-${String(i+1).padStart(2,'0')}`);
   let variant = Object.hasOwn(names,params.get('variant')) ? params.get('variant') : 'C';
   let host = 0, cursor = 10, selectedPID = 7702, recording = false, playing = false, speed = 1, follow = false;
+  let windowFrames = 900, windowStart = 0;
   let source = 'npu', rule = 'npu', keyword = 'tilexr', draftName = '', draftShell = '', commandMessage = '';
   const recordedCommands = [
     {id:'npu',name:'NPU 状态',original:'watch npu-smi info',shell:'npu-smi info',enabled:true},
@@ -43,11 +44,12 @@ window.startHistoryPrototype = function () {
   const at = ms => new Date(ms).toLocaleTimeString('zh-CN',{hour12:false,timeZone:'Asia/Shanghai'});
   function frame(n, timestamp=base+n*4000) {
     return hosts.map((machine,m)=>{
-      const overlap = m===0 ? n>=8 && n<=15 : m===3 ? n>=14 && n<=19 : m===8 ? n>=4 && n<=9 : false;
-      const gap = m===1 && n>=11 && n<=13;
+      const phase=n%300, cycle=Math.floor(n/300);
+      const overlap = m===0 ? phase>=8 && phase<=15 : m===3 ? phase>=14 && phase<=19 : m===8 ? phase>=4 && phase<=9 : false;
+      const gap = m===1 && phase>=11 && phase<=13;
       const pid = 4101+m*100, rival = 7702+m*100;
       const processes = [{pid,ppid:4000+m*100,user:'root',start:'13:42:10',ticks:830000+m,boot:'demo-boot-'+m,cmd:'python train.py --config configs/base.yaml',cwd:'/home/team-a/training',npu:0,memory:28000,new:false},
-        ...(overlap?[{pid:rival,ppid:7600+m*100,user:'root',start:m===0?'14:00:30':m===3?'14:00:54':'14:00:14',ticks:940000+m,boot:'demo-boot-'+m,cmd:'python /home/team-b/tilexr/benchmarks/benchmark.py --device 0 --suite matmul',cwd:n===15&&m===0?null:'/home/team-b/tilexr/benchmarks',cwdError:'进程在读取 cwd 前退出（模拟）',npu:0,memory:12000,new:true}]:[]),
+        ...(overlap?[{pid:rival,ppid:7600+m*100,user:'root',start:at(base+cycle*1200000+(m===0?30000:m===3?54000:14000)),ticks:940000+m+cycle*120000,boot:'demo-boot-'+m,cmd:'python /home/team-b/tilexr/benchmarks/benchmark.py --device 0 --suite matmul',cwd:phase===15&&m===0?null:'/home/team-b/tilexr/benchmarks',cwdError:'进程在读取 cwd 前退出（模拟）',npu:0,memory:12000,new:true}]:[]),
         {pid:9900+m,ppid:1,user:'root',start:'12:10:00',ticks:800000+m,boot:'demo-boot-'+m,cmd:'python data_prepare.py',cwd:'/home/shared/datasets',npu:null,memory:0,new:false}];
       const npu = gap ? '[SSH 采集超时：这一帧没有 NPU 输出，不能解释为没有任务]' : [
         '+---------------------------------------------------------------+',
@@ -66,7 +68,7 @@ window.startHistoryPrototype = function () {
       return snapshot;
     });
   }
-  for(let n=0;n<24;n++) frames.push(frame(n));
+  for(let n=0;n<900;n++) frames.push(frame(n));
   document.body.classList.add('history-prototype');
   const root = document.createElement('section'); root.id = 'history-prototype'; document.querySelector('main').append(root);
   const switcher = document.createElement('nav'); switcher.className='prototype-switcher'; switcher.setAttribute('aria-label','原型方案切换'); document.body.append(switcher);
@@ -104,7 +106,7 @@ window.startHistoryPrototype = function () {
       ${output?`<p>当时指令：<code>${h(output.original)}</code> → 单次执行：<code>${h(output.shell)}</code></p><small>${h(s.id)} · 退出码 ${output.exitCode??'未知'} · ${at(output.at)}</small><pre>${h(output.missing?'[本次采集失败]':output.stdout||'[stdout 为空]')}</pre>${output.stderr?`<pre>stderr: ${h(output.stderr)}</pre>`:''}`:'<p>这个时刻没有保存该指令。开始记录后，新采样才会出现结果。</p>'}
       <p>下方是同一轮的 NPU / ps / cwd 辅助证据；任意文本不会自动被解释成 PID 或目录。</p></section>`;
   }
-  function choose(m,n,pid) {host=m;cursor=n;follow=false;selectedPID=pid ?? (current().processes.find(p=>p.new)?.pid || current().processes[0]?.pid);draw();}
+  function choose(m,n,pid) {host=m;cursor=n;if(cursor<windowStart||cursor>=windowStart+windowFrames)windowStart=Math.floor(cursor/windowFrames)*windowFrames;follow=false;selectedPID=pid ?? (current().processes.find(p=>p.new)?.pid || current().processes[0]?.pid);draw();}
   function events() {
     const list=[];
     hosts.forEach((machine,m)=>{
@@ -131,7 +133,20 @@ window.startHistoryPrototype = function () {
   }
   function VariantA() {return `<div class="hp-a"><aside class="hp-hosts"><h3>机器历史</h3>${hosts.map((name,m)=>`<button data-host="${m}" class="${m===host?'active':''}"><span>${name}</span><small>${frames.some(r=>r[m].overlap)?'有疑似竞争':m===1?'有缺帧':'无标记'}</small></button>`).join('')}</aside><div>${timeline()}${evidence()}</div></div>`;}
   function VariantB() {return `<div class="hp-b"><aside class="hp-events"><h3>疑似竞争事件</h3><p>按时间倒序，先选事件，再对照前后帧。</p>${events().map(e=>`<button data-event="${e.m},${e.first},${e.pid}" class="${e.m===host&&cursor>=e.first&&cursor<=e.last?'active':''}"><small>${at(frames[e.first][e.m].startedAt)} — ${at(frames[e.last][e.m].startedAt)}</small><strong>${e.machine} · NPU 0</strong><span>同卡新增 PID ${e.pid}</span><small>首末观察点；真实开始/结束可能在采样间隔内</small></button>`).join('')}<div class="hp-tip">多 PID 也可能是合法协同任务。先查看目录和命令，再判断是否竞争。</div></aside><div><div class="hp-context"><button data-action="before">看事件前一帧</button><span>当前 ${current().machine} · ${at(current().startedAt)}</span></div>${evidence(true)}</div></div>`;}
-  function VariantC() {return `<div class="hp-c">${commandPanel()}<div class="hp-rule-controls"><label>矩阵展示指令 <select id="hp-source" aria-label="矩阵展示指令">${recordedCommands.map(c=>`<option value="${c.id}" ${source===c.id?'selected':''}>${h(c.name)}</option>`).join('')}</select></label><label>本地标记规则 <select id="hp-rule" aria-label="本地标记规则"><option value="none" ${rule==='none'?'selected':''}>不判断，仅记录</option><option value="contains" ${rule==='contains'?'selected':''}>包含指定文本</option><option value="change" ${rule==='change'?'selected':''}>相比上一帧变化</option><option value="npu" ${rule==='npu'?'selected':''} ${source!=='npu'?'disabled':''}>NPU 同卡多个 PID（原型格式）</option></select></label>${rule==='contains'?`<label>匹配文本 <input id="hp-keyword" aria-label="匹配文本" value="${h(keyword)}"></label>`:''}<span>本机确定性规则 · 无 AI</span></div><section class="hp-matrix"><h3>16 台机器 × 历史时刻</h3><p>每格 4 秒。橙色是所选规则命中；绿色是已记录 / 未命中；灰色是缺失 / 无法判断。点击格子查看当时的指令、输出及辅助证据。</p><div class="hp-matrix-scroll"><table><thead><tr><th>机器 / 时间</th>${frames.map((r,n)=>`<th>${n%4===0?at(r[0].startedAt).slice(3):'·'}</th>`).join('')}</tr></thead><tbody>${hosts.map((machine,m)=>`<tr><th>${machine}</th>${frames.map((row,n)=>{const status=mark(row[m]);return `<td><button data-cell="${m},${n}" class="${status.kind} ${m===host&&n===cursor?'selected':''}" title="${h(status.reason)}" aria-label="${machine} ${at(row[m].startedAt)}">${status.text}</button></td>`;}).join('')}</tr>`).join('')}</tbody></table></div></section>${recordedEvidence()}${evidence(true)}</div>`;}
+  function matrix() {
+    const end=Math.min(frames.length,windowStart+windowFrames), stride=Math.ceil(windowFrames/60);
+    const bins=[];for(let start=windowStart;start<end;start+=stride)bins.push({start,end:Math.min(start+stride,end)});
+    return `<section class="hp-matrix"><h3>16 台机器 × 历史时刻</h3><div class="hp-rule-controls"><label>时间范围 <select id="hp-window" aria-label="时间范围">${[[15,'1 分钟 · 4 秒/格'],[75,'5 分钟 · 8 秒/格'],[225,'15 分钟 · 16 秒/格'],[900,'1 小时 · 1 分钟/格']].map(([value,label])=>`<option value="${value}" ${windowFrames===value?'selected':''}>${label}</option>`).join('')}</select></label><button data-action="window-prev" ${windowStart===0?'disabled':''}>前一时段</button><button data-action="window-next" ${end===frames.length?'disabled':''}>后一时段</button><button data-action="zoom-minute">放大到选中分钟</button><b>${at(frames[windowStart][0].startedAt)} — ${at(frames[end-1][0].startedAt+4000)}</b></div>
+      <p>原始记录每 4 秒一帧；当前每格汇总最多 ${stride} 帧。橙色 ! 为至少一帧命中规则，灰色 ? 为缺失或无法判断，绿色 · 为已记录且未命中。汇总不丢弃原始帧；点击优先定位首个命中帧，也可放大逐帧看。</p>
+      <div class="hp-matrix-scroll"><table><thead><tr><th>机器 / 时间</th>${bins.map((bin,k)=>`<th>${k%Math.max(1,Math.ceil(bins.length/12))===0?at(frames[bin.start][0].startedAt).slice(3):'·'}</th>`).join('')}</tr></thead><tbody>${hosts.map((machine,m)=>`<tr><th>${machine}</th>${bins.map(bin=>{
+        const statuses=[];for(let n=bin.start;n<bin.end;n++)statuses.push({...mark(frames[n][m]),n});
+        const hits=statuses.filter(x=>x.kind==='suspect'),missing=statuses.filter(x=>x.kind==='gap');
+        const picked=hits[0]||missing[0]||statuses[0],kind=hits.length?'suspect':missing.length?'gap':'normal';
+        const range=at(frames[bin.start][m].startedAt),reason=`${range} 起 ${statuses.length} 帧；规则命中 ${hits.length} 帧；缺失或无法判断 ${missing.length} 帧。${picked.reason}`;
+        return `<td><button data-cell="${m},${picked.n}" class="${kind} ${m===host&&cursor>=bin.start&&cursor<bin.end?'selected':''}" title="${h(reason)}" aria-label="${machine} ${range}">${statuses.length===1?picked.text:hits.length?'!':missing.length?'?':'·'}</button></td>`;
+      }).join('')}</tr>`).join('')}</tbody></table></div></section>`;
+  }
+  function VariantC() {return `<div class="hp-c">${commandPanel()}<div class="hp-rule-controls"><label>矩阵展示指令 <select id="hp-source" aria-label="矩阵展示指令">${recordedCommands.map(c=>`<option value="${c.id}" ${source===c.id?'selected':''}>${h(c.name)}</option>`).join('')}</select></label><label>本地标记规则 <select id="hp-rule" aria-label="本地标记规则"><option value="none" ${rule==='none'?'selected':''}>不判断，仅记录</option><option value="contains" ${rule==='contains'?'selected':''}>包含指定文本</option><option value="change" ${rule==='change'?'selected':''}>相比上一帧变化</option><option value="npu" ${rule==='npu'?'selected':''} ${source!=='npu'?'disabled':''}>NPU 同卡多个 PID（原型格式）</option></select></label>${rule==='contains'?`<label>匹配文本 <input id="hp-keyword" aria-label="匹配文本" value="${h(keyword)}"></label>`:''}<span>本机确定性规则 · 无 AI</span></div>${matrix()}${recordedEvidence()}${evidence(true)}</div>`;}
   function draw() {
     const s=current();
     root.innerHTML=`<div class="hp-notice"><b>PROTOTYPE / 模拟数据</b><span>验证问题：能否从历史 NPU 占用，追溯同轮进程与工作目录？记录只在内存，刷新丢失。</span><a href="/?demo=1">返回实时演示</a></div>
@@ -139,7 +154,7 @@ window.startHistoryPrototype = function () {
       <div class="hp-controls"><label>机器 <select id="hp-machine" aria-label="回放机器">${hosts.map((name,m)=>`<option value="${m}" ${m===host?'selected':''}>${name}</option>`).join('')}</select></label><button data-action="prev" ${cursor===0?'disabled':''}>上一帧</button><button data-action="play">${playing?'暂停回放':'播放回放'}</button><button data-action="next" ${cursor===frames.length-1?'disabled':''}>下一帧</button><select id="hp-speed" aria-label="回放速度">${[1,2,4].map(n=>`<option value="${n}" ${speed===n?'selected':''}>${n}×</option>`).join('')}</select><input id="hp-time" aria-label="历史时间轴" type="range" min="0" max="${frames.length-1}" value="${cursor}"><b>${at(s.startedAt)}</b><button data-action="latest">${follow?'跟随最新 ✓':'跟随最新'}</button></div>
       <div class="hp-legend"><span>颜色解释见所选方案</span><span class="hp-amber">标记仅辅助排查，不认定任务挤占</span><span>灰色：采集缺失</span><span>回放位置固定；新增记录不会把你拉回最新</span></div>
       ${{A:VariantA,B:VariantB,C:VariantC}[variant]()}
-      <details class="hp-state"><summary>查看原型状态 / 数据模型</summary><pre>${h(JSON.stringify({variant,source,rule,keyword,recordedCommands,mode:playing?'replay-playing':'replay-paused',recording,followLatest:follow,frames:frames.length,selectedMachine:s.machine,selectedSample:s.id,selectedPID,timestamps:{npu:s.npuAt,ps:s.psAt,cwd:s.cwdAt,start:s.startedAt,end:s.endedAt},fields:['machineId','sampleId','rawNpu','rawPs','pid','bootId','starttime','cwd','cwdError'],persistence:'none / mock only',decisions:'同轮关联；保留缺失；用 bootId + PID + starttime 防止 PID 重用误关联'},null,2))}</pre></details>`;
+      <details class="hp-state"><summary>查看原型状态 / 数据模型</summary><pre>${h(JSON.stringify({variant,windowFrames,windowStart,source,rule,keyword,recordedCommands,mode:playing?'replay-playing':'replay-paused',recording,followLatest:follow,frames:frames.length,selectedMachine:s.machine,selectedSample:s.id,selectedPID,timestamps:{npu:s.npuAt,ps:s.psAt,cwd:s.cwdAt,start:s.startedAt,end:s.endedAt},fields:['machineId','sampleId','rawNpu','rawPs','pid','bootId','starttime','cwd','cwdError'],persistence:'none / mock only',decisions:'同轮关联；保留缺失；用 bootId + PID + starttime 防止 PID 重用误关联'},null,2))}</pre></details>`;
     switcher.innerHTML=`<button data-variant="-1" aria-label="上一个原型方案">←</button><span>原型 ${variant} — ${names[variant]}</span><button data-variant="1" aria-label="下一个原型方案">→</button>`;
     observations.push({variant,sample:s.id,pid:selectedPID,recording});
     console.info('[history prototype]',observations.at(-1));
@@ -150,6 +165,7 @@ window.startHistoryPrototype = function () {
   root.oninput=e=>{if(e.target.id==='hp-command-name')draftName=e.target.value;if(e.target.id==='hp-command-shell')draftShell=e.target.value;};
   root.onchange=e=>{
     if(e.target.dataset.recordCommand){recordedCommands.find(c=>c.id===e.target.dataset.recordCommand).enabled=e.target.checked;}
+    if(e.target.id==='hp-window'){windowFrames=Number(e.target.value);windowStart=Math.floor(cursor/windowFrames)*windowFrames;draw();}
     if(e.target.id==='hp-source'){source=e.target.value;rule='none';draw();}
     if(e.target.id==='hp-rule'){rule=e.target.value;draw();}
     if(e.target.id==='hp-keyword'){keyword=e.target.value;draw();}
@@ -173,16 +189,19 @@ if(e.target.id==='hp-machine')choose(Number(e.target.value),cursor);if(e.target.
         }
         draw();root.querySelector('.hp-command-settings').open=true;break;
       }
+      case 'window-prev':windowStart=Math.max(0,windowStart-windowFrames);draw();break;
+      case 'window-next':windowStart=Math.min(frames.length-1,windowStart+windowFrames);draw();break;
+      case 'zoom-minute':windowFrames=15;windowStart=Math.floor(cursor/15)*15;draw();break;
       case 'record':recording=!recording;draw();break;
       case 'play':playing=!playing;follow=false;if(playing&&cursor===frames.length-1)cursor=0;draw();break;
       case 'prev':playing=false;choose(host,Math.max(0,cursor-1));break;
       case 'next':playing=false;choose(host,Math.min(frames.length-1,cursor+1));break;
-      case 'latest':playing=false;follow=true;cursor=frames.length-1;draw();break;
+      case 'latest':playing=false;follow=true;cursor=frames.length-1;windowStart=Math.floor(cursor/windowFrames)*windowFrames;draw();break;
       case 'before':{const event=events().find(e=>e.m===host&&cursor>=e.first&&cursor<=e.last);playing=false;choose(host,Math.max(0,(event?.first??cursor)-1));break;}
     }
   };
   let playElapsed=0;
-  setInterval(()=>{if(!playing){playElapsed=0;return;}playElapsed+=250*speed;if(playElapsed<4000)return;playElapsed=0;if(cursor<frames.length-1){cursor++;selectedPID=current().processes.find(p=>p.new)?.pid||current().processes[0]?.pid;}else playing=false;draw();},250);
-  setInterval(()=>{if(!recording)return;frames.push(frame(frames.length,frames.at(-1)[0].startedAt+4000));if(follow)cursor=frames.length-1;draw();},4000);
+  setInterval(()=>{if(!playing){playElapsed=0;return;}playElapsed+=250*speed;if(playElapsed<4000)return;playElapsed=0;if(cursor<frames.length-1){cursor++;if(cursor>=windowStart+windowFrames)windowStart=Math.floor(cursor/windowFrames)*windowFrames;selectedPID=current().processes.find(p=>p.new)?.pid||current().processes[0]?.pid;}else playing=false;draw();},250);
+  setInterval(()=>{if(!recording)return;frames.push(frame(frames.length,frames.at(-1)[0].startedAt+4000));if(follow){cursor=frames.length-1;windowStart=Math.floor(cursor/windowFrames)*windowFrames;}draw();},4000);
   draw();
 };

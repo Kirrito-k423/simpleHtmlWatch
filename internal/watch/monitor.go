@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"strings"
@@ -16,11 +17,19 @@ import (
 const maxOutput = 256 * 1024
 
 type Result struct {
-	CommandID string `json:"commandId"`
-	Output    string `json:"output"`
-	Error     string `json:"error,omitempty"`
-	Warning   string `json:"warning,omitempty"`
-	Truncated bool   `json:"truncated"`
+	CommandID string    `json:"commandId"`
+	Name      string    `json:"name,omitempty"`
+	Shell     string    `json:"shell,omitempty"`
+	Original  string    `json:"original,omitempty"`
+	Stdout    string    `json:"stdout"`
+	Stderr    string    `json:"stderr"`
+	ExitCode  *int      `json:"exitCode"`
+	StartedAt time.Time `json:"startedAt"`
+	EndedAt   time.Time `json:"endedAt"`
+	Output    string    `json:"output"`
+	Error     string    `json:"error,omitempty"`
+	Warning   string    `json:"warning,omitempty"`
+	Truncated bool      `json:"truncated"`
 }
 type State struct {
 	MachineID   string     `json:"machineId"`
@@ -37,6 +46,7 @@ type State struct {
 	Results     []Result   `json:"results"`
 }
 type Monitor struct {
+	history        *History
 	mu             sync.RWMutex
 	states         map[string]State
 	triggers       map[string]chan struct{}
@@ -46,6 +56,8 @@ type Monitor struct {
 	wg             sync.WaitGroup
 	commandTimeout time.Duration
 }
+
+func (m *Monitor) SetHistory(h *History) { m.history = h }
 
 func NewMonitor(t *TrustStore) *Monitor {
 	return &Monitor{trust: t, states: map[string]State{}, triggers: map[string]chan struct{}{}, slots: make(chan struct{}, 8), commandTimeout: 12 * time.Second}
@@ -152,6 +164,24 @@ func (m *Monitor) worker(ctx context.Context, host Machine, profile Profile, sel
 		case m.slots <- struct{}{}:
 		}
 		start := time.Now()
+		epoch, recording := uint64(0), false
+		if m.history != nil {
+			epoch, recording = m.history.Epoch()
+		}
+		sampleCommands := append([]Command{}, selected...)
+		if recording {
+			hasNPU := false
+			for _, cmd := range selected {
+				if cmd.ID == "npu" {
+					hasNPU = true
+				}
+			}
+			if !hasNPU {
+				cmd, _ := commandByID("npu")
+				sampleCommands = append(sampleCommands, cmd)
+			}
+			sampleCommands = append(sampleCommands, Command{ID: "history-ps", Name: "完整 ps -ef", Shell: "ps -ef"}, Command{ID: "history-cwd", Name: "进程工作目录", Shell: cwdCommand})
+		}
 		s := State{MachineID: host.ID, Status: "online", Results: []Result{}, LastSuccess: last}
 		addr := net.JoinHostPort(host.Host, strconv.Itoa(host.Port))
 		var err error
@@ -160,7 +190,7 @@ func (m *Monitor) worker(ctx context.Context, host Machine, profile Profile, sel
 		}
 		if err == nil {
 			retryAvailable := true
-			for _, cmd := range selected {
+			for _, cmd := range sampleCommands {
 				r, transportErr := runWithDeadline(ctx, client, conn, cmd, m.commandTimeout)
 				// Only the fixed read-only monitoring commands may be repeated. Retry
 				// transport failures once per sample, never ordinary nonzero exits.
@@ -207,7 +237,20 @@ func (m *Monitor) worker(ctx context.Context, host Machine, profile Profile, sel
 		}
 		s.UpdatedAt = time.Now()
 		s.DurationMs = time.Since(start).Milliseconds()
-		m.put(ctx, s)
+		live := s
+		live.Results = make([]Result, 0, len(s.Results))
+		for _, result := range s.Results {
+			if strings.HasPrefix(result.CommandID, "history-") {
+				continue
+			}
+			result.Stdout = ""
+			result.Stderr = "" // Live cards use combined Output; avoid duplicating historical payloads.
+			live.Results = append(live.Results, result)
+		}
+		m.put(ctx, live)
+		if recording && ctx.Err() == nil {
+			m.history.Append(epoch, HistoryRecord{MachineID: host.ID, MachineName: host.Name, Host: host.Host, StartedAt: start, State: s})
+		}
 		<-m.slots
 		// Retry at the trust deadline even when the sampling interval is much longer.
 		// Waiting does not occupy a connection slot and does not depend on an open browser.
@@ -282,18 +325,34 @@ func runWithDeadline(ctx context.Context, client *ssh.Client, conn net.Conn, cmd
 }
 
 func run(client *ssh.Client, cmd Command) (Result, error) {
-	r := Result{CommandID: cmd.ID}
+	r := Result{CommandID: cmd.ID, Name: cmd.Name, Original: cmd.Shell, StartedAt: time.Now()}
+	shell, normalizeErr := NormalizeWatch(cmd.Shell)
+	r.Shell = shell
+	if normalizeErr != nil {
+		r.Error = normalizeErr.Error()
+		r.EndedAt = time.Now()
+		return r, nil
+	}
 	s, err := client.NewSession()
 	if err != nil {
 		r.Error = err.Error()
+		r.EndedAt = time.Now()
 		return r, err
 	}
 	defer s.Close()
 	var out boundedOutput
-	s.Stdout = &out
-	s.Stderr = &out
+	var stdout, stderr boundedOutput
+	s.Stdout = io.MultiWriter(&out, &stdout)
+	s.Stderr = io.MultiWriter(&out, &stderr)
 	// A login shell loads PATH on common bare-metal installations; no PTY or watch process is created.
-	err = s.Run("bash -o pipefail -lc '" + strings.ReplaceAll(cmd.Shell, "'", "'\"'\"'") + "'")
+	err = s.Run("bash -o pipefail -lc '" + strings.ReplaceAll(shell, "'", "'\"'\"'") + "'")
+	r.EndedAt = time.Now()
+	r.Stdout = stdout.b.String()
+	r.Stderr = stderr.b.String()
+	if err == nil {
+		code := 0
+		r.ExitCode = &code
+	}
 	r.Output = out.b.String()
 	r.Truncated = out.truncated
 	if err != nil {
@@ -314,6 +373,8 @@ func run(client *ssh.Client, cmd Command) (Result, error) {
 		if !errors.As(err, &exitErr) {
 			return r, err
 		}
+		code := exitErr.ExitStatus()
+		r.ExitCode = &code
 	}
 	return r, nil
 }

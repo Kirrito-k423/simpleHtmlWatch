@@ -16,12 +16,12 @@ import (
 )
 
 func TestCustomCommandValidation(t *testing.T) {
-	for _, c := range []CustomCommand{{}, {Shell: "ps -ef | grep tilexr", Enabled: true}, {Shell: "printf '%s\\n' \"a'b\" | grep tilexr", Enabled: true}} {
+	for _, c := range []CustomCommand{{}, {Shell: "ps -ef | grep tilexr", Enabled: true}, {Shell: "watch -n 4 ps -ef", Enabled: true}, {Shell: "/usr/bin/watch ps -ef"}, {Shell: "printf '%s\\n' \"a'b\" | grep tilexr", Enabled: true}} {
 		if err := c.Validate(); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for _, c := range []CustomCommand{{Enabled: true}, {Shell: "  ", Enabled: true}, {Shell: "watch -n 4 ps -ef", Enabled: true}, {Shell: "/usr/bin/watch ps -ef"}, {Shell: strings.Repeat("x", 4097)}, {Shell: "ps\x00-ef"}} {
+	for _, c := range []CustomCommand{{Enabled: true}, {Shell: "  ", Enabled: true}, {Shell: "watch --exec ps -ef", Enabled: true}, {Shell: "watch"}, {Shell: strings.Repeat("x", 4097)}, {Shell: "ps\x00-ef"}} {
 		if c.Validate() == nil {
 			t.Fatalf("accepted invalid custom command: %+v", c)
 		}

@@ -63,7 +63,13 @@ func start() error {
 		return err
 	}
 	defer listener.Close()
+	history, err := watch.NewHistory(*dir)
+	if err != nil {
+		return err
+	}
+	defer history.Close()
 	monitor := watch.NewMonitor(trust)
+	monitor.SetHistory(history)
 	monitor.Replace(store.Snapshot())
 	defer monitor.Close()
 	web, _ := fs.Sub(assets, "web")

@@ -243,6 +243,8 @@ func newFixture(t *testing.T) *fixture {
 								if f.omitExitStatus.Load() {
 									return
 								}
+							} else if strings.Contains(v.Command, "/proc/sys/kernel/random/boot_id") {
+								_, _ = io.WriteString(stream, "BOOT\tdemo-boot\n42\t12345\tL2hvbWUvdGVhbS90aWxleHI=\n")
 							} else if strings.Contains(v.Command, "ps -ef") {
 								_, _ = io.WriteString(stream, "root 42 1 python train.py\n")
 							} else {

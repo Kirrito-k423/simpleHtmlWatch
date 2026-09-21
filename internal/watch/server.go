@@ -91,6 +91,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	http.FileServer(http.FS(s.assets)).ServeHTTP(w, r)
 }
 func (s *Server) api(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, "/api/history/") {
+		s.historyAPI(w, r)
+		return
+	}
 	switch r.URL.Path {
 	case "/api/config":
 		switch r.Method {

@@ -5,7 +5,7 @@
   <meta name="watch-token" content="__WATCH_TOKEN__">
   <title>simpleHtmlWatch · 机器监控</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%23c4f36a'/%3E%3Cpath d='M8 23h7l4-12 5 20 3-8h5' fill='none' stroke='%23121b12' stroke-width='3'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="/style.css"><script src="/page-rotation.js" defer></script><script src="/app.js" defer></script><script src="/history.js" defer></script><script src="/execution.js" defer></script><link rel="stylesheet" href="/execution.css"><link rel="stylesheet" href="/history.css">
+  <link rel="stylesheet" href="/style.css"><script src="/page-rotation.js" defer></script><script src="/app.js" defer></script><script src="/history.js" defer></script><script src="/execution.js" defer></script><script src="/task-timeline.js" defer></script><script src="/tasks.js" defer></script><link rel="stylesheet" href="/execution.css"><link rel="stylesheet" href="/history.css"><link rel="stylesheet" href="/tasks.css">
 </head>
 <body>
   <header class="topbar">
@@ -16,9 +16,10 @@
       <div class="tabs" id="view-tabs"><button data-view="npu" class="active">NPU 状态</button><button data-view="python">Python 进程</button><button data-view="usage">CPU / 内存</button><button data-view="custom">自定义</button></div>
       <div class="filters"><input id="search" type="search" placeholder="名称 / IP" aria-label="搜索机器"><select id="group-filter" aria-label="机器分组"><option value="">所有分组</option></select><select id="layout" aria-label="同屏台数"><option value="2">2 台 / 屏</option><option value="4">4 台 / 屏</option><option value="8">8 台 / 屏</option><option value="16" selected>16 台 / 屏</option></select><select id="output-position" aria-label="内容位置" title="统一定位所有机器输出的可见区域"><option value="top-left" selected>正文 · 左上</option><option value="top-right">正文 · 右上</option><option value="center">正文 · 居中</option><option value="bottom-left">正文 · 左下</option><option value="bottom-right">正文 · 右下</option></select><button id="refresh-btn" title="立即采集" aria-label="立即采集">↻</button><button id="pause-btn" title="暂停本页面显示更新，后台继续采集">Ⅱ 暂停</button></div>
     </div>
-    <div class="top-actions"><button id="execution-btn">批量执行</button><button id="history-btn">◷ 历史记录</button><button id="settings-btn">⚙ 管理机器</button><button id="fullscreen-btn" title="进入全屏，按 Esc 退出">⛶ 全屏</button></div>
+    <div class="top-actions"><a class="task-top-link" href="/?tasks=1">任务中台</a><button id="execution-btn">批量执行</button><button id="history-btn">◷ 历史记录</button><button id="settings-btn">⚙ 管理机器</button><button id="fullscreen-btn" title="进入全屏，按 Esc 退出">⛶ 全屏</button></div>
   </header>
   <main>
+    <section id="task-panel" aria-label="集群任务中台" hidden></section>
     <form id="custom-form" class="custom-bar" hidden>
       <select id="custom-select" aria-label="选择自定义指令"></select><button id="custom-add" type="button" title="新增自定义指令" aria-label="新增自定义指令">＋</button><input id="custom-name" maxlength="80" required aria-label="指令名称" placeholder="指令名称"><input id="custom-shell" type="text" maxlength="4096" required spellcheck="false" autocomplete="off" aria-label="自定义指令" placeholder="ps -ef | grep tilexr（也支持 watch -n 4）" title="通过远端 Bash 定时执行，请填写可重复执行的短命令">
       <button id="custom-apply" class="primary" type="submit">保存并运行</button><button id="custom-stop" type="button" disabled>停止</button><button id="custom-delete" type="button" title="删除当前指令">删除</button><span id="custom-status" role="status"></span>

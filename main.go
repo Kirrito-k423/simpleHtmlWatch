@@ -74,6 +74,9 @@ func start() error {
 	defer monitor.Close()
 	web, _ := fs.Sub(assets, "web")
 	app := watch.NewServer(store, monitor, trust, web, listener.Addr().String())
+	if err := app.EnableTasks(); err != nil {
+		return err
+	}
 	defer app.Close()
 	server := &http.Server{Handler: app, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 40 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 * 1024}
 	url := "http://" + listener.Addr().String()

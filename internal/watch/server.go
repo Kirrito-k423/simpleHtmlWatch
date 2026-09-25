@@ -12,6 +12,7 @@ import (
 
 type Server struct {
 	executor *Executor
+	tasks    *TaskManager
 	store    *Store
 	monitor  *Monitor
 	trust    *TrustStore
@@ -23,6 +24,14 @@ type Server struct {
 
 func NewServer(s *Store, m *Monitor, t *TrustStore, assets fs.FS, host string) *Server {
 	return &Server{executor: NewExecutor(t), store: s, monitor: m, trust: t, assets: assets, host: host, token: randomToken()}
+}
+func (s *Server) EnableTasks() error {
+	tasks, err := NewTaskManager(s.store, s.monitor, s.trust)
+	if err != nil {
+		return err
+	}
+	s.tasks = tasks
+	return nil
 }
 func jsonResponse(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -94,6 +103,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/api/executions" {
 		s.executionAPI(w, r)
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/api/tasks") {
+		s.tasksAPI(w, r)
 		return
 	}
 	if strings.HasPrefix(r.URL.Path, "/api/history/") {
@@ -197,4 +210,9 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) Close() { s.executor.Close() }
+func (s *Server) Close() {
+	if s.tasks != nil {
+		s.tasks.Close()
+	}
+	s.executor.Close()
+}

@@ -82,7 +82,7 @@ pkill -f -- '[t]ilexr'
 
 本机 API 可为 AI 或脚本在所有 ready 机器中自动调度，也可限定机器或机器组，提交后台 Bash 任务，轮询退出码，读取日志并回收最多 5 MiB 的结果包。首页「任务中台」打开真实事件时间泳道：相邻事件堆叠，长时间无状态事件的区间压缩显示，并保留实际时间与时长。任务记录持久化；程序重启后只查询远端状态，不重发命令。`ready` 表示 SSH 监控新鲜且中台空闲，不代表 NPU 空闲或显存足够。
 
-完整构建、选机、提交、监控、回收和异常处理见 [SSH 任务中台标准 SOP](docs/task-controller.md)。AI 客户端 Skill 位于独立 `agent-skills` 仓库的 `cluster-task-controller/`。
+测试版发布包内的 [内部 AI 试用说明](AI-START-HERE.md) 可直接交给试用者：解压后启动程序，在浏览器配置机器与查看任务。每个平台的发布包都包含 `skills/cluster-task-controller/` AI Skill 和 [SSH 任务中台标准 SOP](docs/task-controller.md)，使用者无需编译。AI 客户端的规范源仍在独立 `agent-skills` 仓库；发布包携带同一份 Skill 供离线试用。
 
 ## 历史记录与回放（方案 C）
 

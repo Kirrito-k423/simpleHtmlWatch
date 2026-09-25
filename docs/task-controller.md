@@ -2,9 +2,11 @@
 
 此功能在本机 simpleHtmlWatch 中增加持久化的长任务流程。AI 和脚本通过本机 HTTP API 提交任务，中台选择一台 ready 机器，用既有 SSH 凭据和主机指纹发送命令，随后查询远端退出标记并回收结果。一次请求只调度一台机器；需要多机任务时分别提交并记录各自任务 ID。
 
-## 1. 构建与启动
+## 1. 安装与启动
 
-开发环境需要 Go 1.26 或更新版本；运行页面时间轴检查脚本还需要 Node.js。远端需要 Linux、Bash、`base64`、`nohup`、`tail` 和 `tar`，不需要安装 Agent。
+从 [预发布页面](https://github.com/Kirrito-k423/simpleHtmlWatch/releases) 下载与本机系统、架构对应的压缩包，解压后按 [内部 AI 试用说明](../AI-START-HERE.md) 启动。Windows 双击 `start.bat`，macOS 双击 `start.command`；Linux 运行 `start.sh`。本机运行程序不需要 Go、Node.js 或 Python。远端需要 Linux、Bash、`base64`、`nohup`、`tail` 和 `tar`，不需要安装 Agent。
+
+开发者从源码验证时才需要 Go 1.26 或更新版本，以及运行页面时间轴检查脚本所需的 Node.js：
 
 ```sh
 go test ./...
@@ -15,7 +17,7 @@ go build -o simpleHtmlWatch .
 
 预期控制台显示 `监控页面：http://127.0.0.1:8765` 和本机配置目录。保持程序运行。任务中台继续复用“管理机器”中的配置、密码和已信任主机指纹；先让目标机器完成一次监控采样。
 
-AI 客户端在独立的 `agent-skills/cluster-task-controller/scripts/taskctl.py`，只依赖 Python 标准库。它先读取本机首页的会话令牌，再访问任务 API，不需要保存 SSH 密码。已安装 Skill 时可直接使用全局入口：
+发布包内附 `skills/cluster-task-controller/scripts/taskctl.py`，只依赖 Python 3 标准库。它先读取本机首页的会话令牌，再访问任务 API，不需要保存 SSH 密码。内部 AI 先阅读包内 Skill；若已安装到 Codex 全局目录，也可使用全局入口：
 
 ```sh
 TASKCTL="${CODEX_HOME:-$HOME/.codex}/skills/cluster-task-controller/scripts/taskctl.py"

@@ -14,9 +14,13 @@ for target in windows/amd64 windows/arm64 darwin/arm64 darwin/amd64 linux/amd64 
   CGO_ENABLED=0 GOOS="$target_os" GOARCH="$target_arch" go build -trimpath -ldflags "-s -w -X main.version=${version}" -o "$folder/$executable" .
   cp README.md LICENSE AI-START-HERE.md "$folder/"
   mkdir -p "$folder/docs"
-  cp docs/dashboard.png docs/troubleshooting.md docs/task-controller.md "$folder/docs/"
+  cp docs/dashboard.png docs/troubleshooting.md docs/task-controller.md docs/service-lifecycle.md "$folder/docs/"
   mkdir -p "$folder/skills/cluster-task-controller"
-  cp -R skills/cluster-task-controller/. "$folder/skills/cluster-task-controller/"
+  python3 - "$folder/skills/cluster-task-controller" <<'PY'
+import shutil, sys
+shutil.copytree('skills/cluster-task-controller', sys.argv[1], dirs_exist_ok=True,
+                ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+PY
   if [[ "$target_os" == windows ]]; then
     cp scripts/start.bat "$folder/start.bat"
     (cd dist && zip -qr "${package}.zip" "$package")
@@ -31,7 +35,7 @@ for target in windows/amd64 windows/arm64 darwin/arm64 darwin/amd64 linux/amd64 
     tar -czf "dist/${package}.tar.gz" -C dist "$package"
   fi
 done
-(cd skills && zip -qr "../dist/cluster-task-controller_${version}.zip" cluster-task-controller)
+(cd skills && zip -qr "../dist/cluster-task-controller_${version}.zip" cluster-task-controller -x '*/__pycache__/*' '*.pyc')
 python3 - "$version" <<'PY'
 import hashlib, pathlib, sys
 files = sorted(p for p in pathlib.Path('dist').iterdir() if p.is_file() and (p.name.startswith('simpleHtmlWatch_' + sys.argv[1] + '_') or p.name == 'cluster-task-controller_' + sys.argv[1] + '.zip'))

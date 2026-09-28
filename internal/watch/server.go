@@ -11,6 +11,7 @@ import (
 )
 
 type Server struct {
+	service  *ServiceInfo
 	executor *Executor
 	tasks    *TaskManager
 	store    *Store
@@ -25,6 +26,10 @@ type Server struct {
 func NewServer(s *Store, m *Monitor, t *TrustStore, assets fs.FS, host string) *Server {
 	return &Server{executor: NewExecutor(t), store: s, monitor: m, trust: t, assets: assets, host: host, token: randomToken()}
 }
+
+// SetServiceInfo is called once, before serving requests.
+func (s *Server) SetServiceInfo(info ServiceInfo) { s.service = &info }
+
 func (s *Server) EnableTasks() error {
 	tasks, err := NewTaskManager(s.store, s.monitor, s.trust)
 	if err != nil {
@@ -72,6 +77,20 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if origin := r.Header.Get("Origin"); origin != "" && origin != "http://"+s.host {
 		fail(w, 403, "不允许跨站请求")
+		return
+	}
+	if r.URL.Path == "/healthz" && s.service != nil {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		jsonResponse(w, http.StatusOK, s.service)
+		return
+	}
+	// Clients bind every request to the process they probed. A restart or port
+	// reuse between discovery and submission must never execute on a new owner.
+	if runID := r.Header.Get("X-Watch-Instance"); runID != "" && (s.service == nil || runID != s.service.RunID) {
+		fail(w, http.StatusConflict, "实例已变化，请重新发现；写请求不会自动重试")
 		return
 	}
 	if strings.HasPrefix(r.URL.Path, "/api/") {

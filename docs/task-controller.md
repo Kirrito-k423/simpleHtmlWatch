@@ -12,19 +12,22 @@
 go test ./...
 node scripts/test-task-timeline.cjs
 go build -o simpleHtmlWatch .
-./simpleHtmlWatch -port 8765 -no-browser
+./simpleHtmlWatch -no-browser
 ```
 
-预期控制台显示 `监控页面：http://127.0.0.1:8765` 和本机配置目录。保持程序运行。任务中台继续复用“管理机器”中的配置、密码和已信任主机指纹；先让目标机器完成一次监控采样。
+控制台显示当前监控页面地址、实例名和发现文件。首次自动选空闲端口，以后复用登记端口；端口冲突时报错，不自动漂移。保持程序运行。任务中台继续复用“管理机器”中的配置、密码和已信任主机指纹；先让目标机器完成一次监控采样。
 
-发布包内附 `skills/cluster-task-controller/scripts/taskctl.py`，只依赖 Python 3 标准库。它先读取本机首页的会话令牌，再访问任务 API，不需要保存 SSH 密码。内部 AI 先阅读包内 Skill；若已安装到 Codex 全局目录，也可使用全局入口：
+发布包内附 `skills/cluster-task-controller/scripts/taskctl.py`，只依赖 Python 3 标准库。它先按实例发现并校验 `/healthz` 身份，再读取首页的会话令牌、绑定当前 runId 访问任务 API，不需要保存 SSH 密码。内部 AI 先阅读包内 Skill；若已安装到 Codex 全局目录，也可使用全局入口：
 
 ```sh
 TASKCTL="${CODEX_HOME:-$HOME/.codex}/skills/cluster-task-controller/scripts/taskctl.py"
-python3 "$TASKCTL" --url http://127.0.0.1:8765 ready --group 训练集群
+python3 "$TASKCTL" discover
+python3 "$TASKCTL" ready --group 训练集群
 ```
 
-浏览器打开 `http://127.0.0.1:8765/?tasks=1`，或从首页点“任务中台”，可在同一页发送任务、查看任务时间泳道、读取日志和下载结果包。界面继承本机会话令牌；它操作真实任务，不是原型演示。
+浏览器在控制台显示的地址后加 `/?tasks=1`，或从首页点“任务中台”，可在同一页发送任务、查看任务时间泳道、读取日志和下载结果包。界面继承本机会话令牌；它操作真实任务，不是原型演示。
+
+端口、构建固定、多实例和旧版迁移详见 [服务实例与版本管理](service-lifecycle.md)。AI 不得用重启中台来修复连接失败。使用自定义目录时，每条命令传同一 `--data-dir`；测试实例传同一 `--instance`。
 
 ## 2. 选机器与提交
 
@@ -38,11 +41,11 @@ printf '开始运行\n'
 printf '示例结果\n' > "$SHW_RESULTS_DIR/answer.txt"
 SH
 
-python3 "$TASKCTL" --url http://127.0.0.1:8765 submit \
+python3 "$TASKCTL" submit \
   --group 训练集群 --command-file /tmp/example-task.sh
 
 # 若此命令适用于所有 ready 机器，可省略机器和组：
-python3 "$TASKCTL" --url http://127.0.0.1:8765 submit \
+python3 "$TASKCTL" submit \
   --command-file /tmp/example-task.sh
 ```
 
@@ -52,9 +55,9 @@ python3 "$TASKCTL" --url http://127.0.0.1:8765 submit \
 
 ```sh
 TASK_ID=粘贴提交输出中的实际任务ID
-python3 "$TASKCTL" --url http://127.0.0.1:8765 status "$TASK_ID"
-python3 "$TASKCTL" --url http://127.0.0.1:8765 logs "$TASK_ID"
-python3 "$TASKCTL" --url http://127.0.0.1:8765 wait "$TASK_ID"
+python3 "$TASKCTL" status "$TASK_ID"
+python3 "$TASKCTL" logs "$TASK_ID"
+python3 "$TASKCTL" wait "$TASK_ID"
 ```
 
 状态含义：
@@ -75,7 +78,7 @@ python3 "$TASKCTL" --url http://127.0.0.1:8765 wait "$TASK_ID"
 任务可在 stdout 定期打印阶段、步数或百分比，AI 通过 `logs` 读取进度。若 `unknown` 长时间无法恢复，只有在用户或运维人员**独立核实远端进程已停止**后才能解除占用：
 
 ```sh
-python3 "$TASKCTL" --url http://127.0.0.1:8765 resolve "$TASK_ID" --confirm-remote-stopped
+python3 "$TASKCTL" resolve "$TASK_ID" --confirm-remote-stopped
 ```
 
 此操作不发送远端终止命令，不补造退出码，也不能证明曾经成功。无法核实远端时保持 `unknown` 与机器占用。
@@ -85,8 +88,8 @@ python3 "$TASKCTL" --url http://127.0.0.1:8765 resolve "$TASK_ID" --confirm-remo
 读到远端退出码后中台自动将 stdout、stderr 和 `results/` 打成 `result.tar.gz` 保存到本机配置目录的 `tasks/<任务ID>/`。`archiveReady` 与命令状态分别报告。`abandoned` 虽有本地 `finishedAt`，但没有远端退出码，不触发回收。回收失败会写入 `archiveError`；远端恢复后可安全重试：
 
 ```sh
-python3 "$TASKCTL" --url http://127.0.0.1:8765 collect "$TASK_ID"
-python3 "$TASKCTL" --url http://127.0.0.1:8765 download "$TASK_ID" --out /tmp/result.tar.gz
+python3 "$TASKCTL" collect "$TASK_ID"
+python3 "$TASKCTL" download "$TASK_ID" --out /tmp/result.tar.gz
 tar -tzf /tmp/result.tar.gz
 ```
 
@@ -94,7 +97,7 @@ tar -tzf /tmp/result.tar.gz
 
 ## 5. HTTP API
 
-所有 API 沿用服务的本机 Host、Origin 和 `X-Watch-Token` 校验。令牌来自首页 `<meta name="watch-token">`，随程序重启改变，不写入磁盘。AI 客户端已处理该流程。
+任务 API 沿用服务的本机 Host、Origin 和 `X-Watch-Token` 校验。`GET /healthz` 只读返回实例元数据，保留 Host/Origin 校验但无需会话令牌，不含凭据。新版客户端每次操作前校验身份，并发送 `X-Watch-Instance: <runId>`；若探测后发生实例替换，返回 409 且不执行请求。令牌来自首页 `<meta name="watch-token">`，随程序重启改变，不写入磁盘。AI 客户端已处理该流程。
 
 | 方法与路径 | 用途 |
 | --- | --- |

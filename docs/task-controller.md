@@ -114,3 +114,12 @@ tar -tzf /tmp/result.tar.gz
 ## 6. 验收边界
 
 `go test ./...` 包含本地模拟 SSH 服务，验证后台启动、退出码、日志、归档、重复 ID 与重启后不重放。该结果证明协议链路和本地行为，不等于真实集群调度、NPU 资源空闲判断或多节点任务正确性。首次在真实集群使用时，先提交上面的无副作用示例任务，核对所选机器、日志、退出码和结果包，再运行训练或清理命令。
+# AIConnector 多 Pi 预留接口（0.5 候选版）
+
+`GET /api/tasks/reservations` 返回 `schema: simplehtmlwatch.reservations.v1` 与按 ID 索引的预留表。`POST /api/tasks/reservations` 接受 `{id, machineId}`，原子选择固定机器并持久化；同一 ID 和机器重试只返回原预留。当前不为预留提供 group/自动选择。
+
+持有者提交 `/api/tasks` 时附带 `reservationId`，并指定相同 `machineId`。未持有预留的任务不能占用这台机器。释放通过 `POST /api/tasks/reservations/release` 和 `{id}`，存在未结束或 unknown 的关联任务时返回 409；无 TTL 自动释放。释放后的 ID 永久不能再用于启动新任务，旧客户端不能释放后来持有者的预留。
+
+同一个 host 的不同 SSH 端口共用占用。若不同 IP/主机名实际属于一台物理机器，在机器配置里设置相同的 `resourceId`（1–80 位字母、数字、下划线或连字符）。保留 `tasks/reservations.json` 及原任务目录，重启恢复占用；不要通过删除这些文件解除任务。
+
+预留作用于本实例 `/api/tasks` 调度入口。人工 SSH、即时批量命令 `/api/executions`、自定义监控命令、其他独立中台不会自动遵守这些预留；它们必须避开被预留的实验资源。`ready` 仍不证明 NPU 空闲。AIConnector 首版仅对固定机器入口开启并行。

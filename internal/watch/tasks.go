@@ -18,10 +18,11 @@ import (
 // TaskRequest describes one durable remote task. With no selector, any ready
 // machine may be chosen; machineId and group remain mutually exclusive.
 type TaskRequest struct {
-	ID        string `json:"id"`
-	Shell     string `json:"shell"`
-	MachineID string `json:"machineId,omitempty"`
-	Group     string `json:"group,omitempty"`
+	ReservationID string `json:"reservationId,omitempty"`
+	ID            string `json:"id"`
+	Shell         string `json:"shell"`
+	MachineID     string `json:"machineId,omitempty"`
+	Group         string `json:"group,omitempty"`
 }
 
 type TaskEvent struct {
@@ -105,17 +106,18 @@ type TaskLogs struct {
 }
 
 type TaskManager struct {
-	mu         sync.Mutex
-	dir        string
-	jobs       map[string]*TaskJob
-	store      *Store
-	monitor    *Monitor
-	remote     taskRemote
-	collecting map[string]bool
-	ctx        context.Context
-	cancel     context.CancelFunc
-	wg         sync.WaitGroup
-	poll       time.Duration
+	reservations map[string]Reservation
+	mu           sync.Mutex
+	dir          string
+	jobs         map[string]*TaskJob
+	store        *Store
+	monitor      *Monitor
+	remote       taskRemote
+	collecting   map[string]bool
+	ctx          context.Context
+	cancel       context.CancelFunc
+	wg           sync.WaitGroup
+	poll         time.Duration
 }
 
 func NewTaskManager(store *Store, monitor *Monitor, trust *TrustStore) (*TaskManager, error) {
@@ -129,6 +131,10 @@ func newTaskManager(store *Store, monitor *Monitor, remote taskRemote) (*TaskMan
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m := &TaskManager{dir: dir, jobs: map[string]*TaskJob{}, collecting: map[string]bool{}, store: store, monitor: monitor, remote: remote, ctx: ctx, cancel: cancel, poll: 5 * time.Second}
+	if err := m.loadReservations(); err != nil {
+		cancel()
+		return nil, err
+	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		cancel()
@@ -147,6 +153,12 @@ func newTaskManager(store *Store, monitor *Monitor, remote taskRemote) (*TaskMan
 		if err := json.Unmarshal(b, &job); err != nil || job.ID != entry.Name() {
 			cancel()
 			return nil, fmt.Errorf("任务记录损坏：%s", entry.Name())
+		}
+		if job.ReservationID != "" {
+			if _, ok := m.reservations[job.ReservationID]; !ok {
+				cancel()
+				return nil, errors.New("RESERVATION_STORE_MISSING_FOR_TASK")
+			}
 		}
 		if job.Status == "dispatching" {
 			job.Status = "unknown" // A crash may have happened after SSH accepted the launch.
@@ -206,10 +218,29 @@ func (m *TaskManager) List() []TaskJob {
 }
 
 func (m *TaskManager) readyLocked(c Config, states map[string]State, machineID, group string) []ReadyMachine {
+	return m.readyForReservationLocked(c, states, machineID, group, "")
+}
+
+func (m *TaskManager) readyForReservationLocked(c Config, states map[string]State, machineID, group, owner string) []ReadyMachine {
 	busy := map[string]bool{}
 	busyAddress := map[string]bool{}
+	busyHosts := map[string]bool{}
+	busyResources := map[string]bool{}
+	for _, reservation := range m.reservations {
+		if reservation.ReleasedAt == nil && reservation.ID != owner {
+			busy[reservation.MachineID] = true
+			busyHosts[strings.ToLower(strings.TrimSpace(reservation.Host))] = true
+			busyResources[reservation.ResourceKey] = true
+		}
+	}
 	for _, job := range m.jobs {
 		if job.FinishedAt == nil {
+			busyHosts[strings.ToLower(strings.TrimSpace(job.Host))] = true
+			for _, machine := range c.Machines {
+				if machine.ID == job.SelectedMachineID {
+					busyResources[machineResource(machine)] = true
+				}
+			}
 			busy[job.SelectedMachineID] = true
 			busyAddress[net.JoinHostPort(job.Host, strconv.Itoa(job.Port))] = true
 		}
@@ -218,7 +249,7 @@ func (m *TaskManager) readyLocked(c Config, states map[string]State, machineID, 
 	ready := []ReadyMachine{}
 	for _, machine := range c.Machines {
 		state := states[machine.ID]
-		if !machine.Enabled || busy[machine.ID] || busyAddress[net.JoinHostPort(machine.Host, strconv.Itoa(machine.Port))] || machineID != "" && machine.ID != machineID || group != "" && machine.Group != group ||
+		if !machine.Enabled || busy[machine.ID] || busyHosts[strings.ToLower(strings.TrimSpace(machine.Host))] || busyResources[machineResource(machine)] || busyAddress[net.JoinHostPort(machine.Host, strconv.Itoa(machine.Port))] || machineID != "" && machine.ID != machineID || group != "" && machine.Group != group ||
 			(state.Status != "online" && state.Status != "partial") || state.UpdatedAt.IsZero() || time.Since(state.UpdatedAt) > maxAge {
 			continue
 		}
@@ -255,7 +286,22 @@ func (m *TaskManager) Submit(request TaskRequest) (TaskJob, int, error) {
 		}
 		return copyTask(old), 200, nil
 	}
-	ready := m.readyLocked(c, states, request.MachineID, request.Group)
+	if request.ReservationID != "" {
+		r, ok := m.reservations[request.ReservationID]
+		if !ok || r.ReleasedAt != nil || request.MachineID != r.MachineID || request.Group != "" {
+			return TaskJob{}, 409, errors.New("RESERVATION_NOT_OWNED")
+		}
+		valid := false
+		for _, host := range c.Machines {
+			if host.ID == r.MachineID && machineResource(host) == r.ResourceKey && host.Host == r.Host && host.Port == r.Port {
+				valid = true
+			}
+		}
+		if !valid {
+			return TaskJob{}, 409, errors.New("RESERVATION_TARGET_CHANGED")
+		}
+	}
+	ready := m.readyForReservationLocked(c, states, request.MachineID, request.Group, request.ReservationID)
 	if len(ready) == 0 {
 		return TaskJob{}, 409, errors.New("没有符合条件且监控状态新鲜的空闲机器")
 	}

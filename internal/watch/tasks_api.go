@@ -17,6 +17,36 @@ func (s *Server) tasksAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch r.URL.Path {
+	case "/api/tasks/reservations", "/api/tasks/reservations/release":
+		if r.Method == "GET" && r.URL.Path == "/api/tasks/reservations" {
+			jsonResponse(w, 200, map[string]any{"schema": "simplehtmlwatch.reservations.v1", "reservations": s.tasks.Reservations()})
+			return
+		}
+		if r.Method != "POST" {
+			w.WriteHeader(405)
+			return
+		}
+		var request struct {
+			ID        string `json:"id"`
+			MachineID string `json:"machineId"`
+		}
+		if err := decode(w, r, &request); err != nil || !identifier.MatchString(request.ID) {
+			fail(w, 400, "INVALID_RESERVATION")
+			return
+		}
+		var reservation Reservation
+		var status int
+		var err error
+		if r.URL.Path == "/api/tasks/reservations/release" {
+			reservation, status, err = s.tasks.ReleaseReservation(request.ID)
+		} else {
+			reservation, status, err = s.tasks.Reserve(request.ID, request.MachineID)
+		}
+		if err != nil {
+			fail(w, status, err.Error())
+			return
+		}
+		jsonResponse(w, status, reservation)
 	case "/api/tasks/ready":
 		if r.Method != "GET" {
 			w.WriteHeader(405)

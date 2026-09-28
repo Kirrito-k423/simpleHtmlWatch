@@ -24,14 +24,15 @@ type Profile struct {
 	HasPassword bool   `json:"hasPassword,omitempty"`
 }
 type Machine struct {
-	ID        string   `json:"id"`
-	Name      string   `json:"name"`
-	Host      string   `json:"host"`
-	Port      int      `json:"port"`
-	Group     string   `json:"group"`
-	ProfileID string   `json:"profileId"`
-	Commands  []string `json:"commands"`
-	Enabled   bool     `json:"enabled"`
+	ResourceID string   `json:"resourceId,omitempty"` // Shared by aliases of one physical server.
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	Host       string   `json:"host"`
+	Port       int      `json:"port"`
+	Group      string   `json:"group"`
+	ProfileID  string   `json:"profileId"`
+	Commands   []string `json:"commands"`
+	Enabled    bool     `json:"enabled"`
 }
 type Config struct {
 	CustomCommands   []CustomCommand `json:"customCommands"`
@@ -138,6 +139,9 @@ func (c Config) Validate() error {
 	}
 	ids := map[string]bool{}
 	for _, m := range c.Machines {
+		if m.ResourceID != "" && !identifier.MatchString(m.ResourceID) {
+			return errors.New("物理资源 ID 无效")
+		}
 		if !identifier.MatchString(m.ID) || ids[m.ID] {
 			return errors.New("机器 ID 无效或重复")
 		}

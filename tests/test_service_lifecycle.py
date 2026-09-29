@@ -65,7 +65,7 @@ class LifecycleTests(unittest.TestCase):
             if proc.poll() is not None:
                 self.fail(f"process exited before ready: {proc.communicate()[0]}")
             try:
-                info = json.loads((directory / "service.json").read_text())
+                info = json.loads((directory / "service.json").read_text(encoding="utf-8"))
                 if info["pid"] == proc.pid:
                     with taskctl.OPENER.open(info["url"] + "/healthz", timeout=.3) as response:
                         live = json.load(response)
@@ -231,7 +231,7 @@ class LifecycleTests(unittest.TestCase):
         self.assertNotEqual(self.cli("-status").returncode, 0)
         with self.assertRaisesRegex(RuntimeError, "禁止"):
             self.client().discover()
-        self.assertEqual(json.loads((self.directory / "service.json").read_text()), before)
+        self.assertEqual(json.loads((self.directory / "service.json").read_text(encoding="utf-8")), before)
 
     def test_status_missing_directory_has_no_side_effects(self):
         self.assertNotEqual(self.cli("-status").returncode, 0)
@@ -240,9 +240,9 @@ class LifecycleTests(unittest.TestCase):
     def test_corrupt_registry_is_not_silently_overwritten(self):
         self.directory.mkdir()
         path = self.directory / "service.json"
-        path.write_text("{broken")
+        path.write_text("{broken", encoding="utf-8")
         self.assertNotEqual(self.cli().returncode, 0)
-        self.assertEqual(path.read_text(), "{broken")
+        self.assertEqual(path.read_text(encoding="utf-8"), "{broken")
         self.assertFalse((self.directory / "vault.key").exists())
 
     def test_health_identity_host_origin_and_stale_request_fence(self):
@@ -268,7 +268,7 @@ class LifecycleTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, message):
                 self.client(**kwargs).discover()
         record = dict(info, runId="wrong-run")
-        (self.directory / "service.json").write_text(json.dumps(record))
+        (self.directory / "service.json").write_text(json.dumps(record), encoding="utf-8")
         with self.assertRaisesRegex(RuntimeError, "不一致"):
             self.client().discover()
         self.assertIsNone(owner.poll())
@@ -287,7 +287,8 @@ class LifecycleTests(unittest.TestCase):
         owner = self.launch()
         info = self.running(owner)
         env = {k: v for k, v in os.environ.items() if k not in ("SHW_URL", "SHW_INSTANCE", "SHW_DATA_DIR")}
-        output = subprocess.run([sys.executable, str(CLIENT), "--data-dir", str(self.directory), "discover"], capture_output=True, text=True, env=env)
+        env["PYTHONIOENCODING"] = "utf-8"
+        output = subprocess.run([sys.executable, str(CLIENT), "--data-dir", str(self.directory), "discover"], capture_output=True, text=True, encoding="utf-8", env=env)
         self.assertEqual(output.returncode, 0, output.stderr)
         self.assertEqual(json.loads(output.stdout), info)
         with self.assertRaisesRegex(ValueError, "不能同时"):

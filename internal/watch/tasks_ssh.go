@@ -16,7 +16,10 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-const maxTaskArchive = 5 * 1024 * 1024
+const maxTaskArchive int64 = 10 * 1024 * 1024 * 1024
+
+// Large transfers may run for hours; only a lack of progress should time out.
+const archiveIdleTimeout = 5 * time.Minute
 
 type sshTaskRemote struct{ trust *TrustStore }
 
@@ -108,17 +111,33 @@ func (r *sshTaskRemote) Logs(ctx context.Context, job TaskJob, profile Profile) 
 }
 
 type archiveWriter struct {
-	file *os.File
-	size int64
+	file     io.Writer
+	size     int64
+	progress func() error
+	abort    func()
+	err      error
 }
 
 func (w *archiveWriter) Write(p []byte) (int, error) {
-	if w.size+int64(len(p)) > maxTaskArchive {
-		return 0, errors.New("结果包超过 5 MiB 上限")
+	var n int
+	if int64(len(p)) > maxTaskArchive-w.size {
+		w.err = errors.New("结果包超过 10 GiB 上限")
+	} else {
+		n, w.err = w.file.Write(p)
+		w.size += int64(n)
+		if w.err == nil && n != len(p) {
+			w.err = io.ErrShortWrite
+		}
+		if w.err == nil && w.progress != nil {
+			w.err = w.progress()
+		}
 	}
-	n, err := w.file.Write(p)
-	w.size += int64(n)
-	return n, err
+	if w.err != nil && w.abort != nil {
+		// Stop SSH immediately: otherwise a full channel window can leave tar
+		// and Session.Wait waiting on one another after a local write failure.
+		w.abort()
+	}
+	return n, w.err
 }
 
 func (r *sshTaskRemote) Collect(ctx context.Context, job TaskJob, profile Profile, destination string) error {
@@ -129,7 +148,10 @@ func (r *sshTaskRemote) Collect(ctx context.Context, job TaskJob, profile Profil
 	}
 	defer client.Close()
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(40 * time.Second))
+	progress := func() error { return conn.SetDeadline(time.Now().Add(archiveIdleTimeout)) }
+	if err := progress(); err != nil {
+		return err
+	}
 	stop := context.AfterFunc(ctx, func() { conn.Close() })
 	defer stop()
 	f, err := os.CreateTemp(filepath.Dir(destination), ".archive-*")
@@ -146,12 +168,15 @@ func (r *sshTaskRemote) Collect(ctx context.Context, job TaskJob, profile Profil
 		return err
 	}
 	defer session.Close()
-	writer := &archiveWriter{file: f}
+	writer := &archiveWriter{file: f, progress: progress, abort: func() { conn.Close() }}
 	session.Stdout = writer
 	var stderr boundedOutput
 	session.Stderr = &stderr
 	script := "dir=" + taskDir(job.ID) + "; tar -czf - -C \"$dir\" stdout.log stderr.log results"
 	if err := session.Run("bash -o pipefail -c " + shellQuote(script)); err != nil {
+		if writer.err != nil {
+			return fmt.Errorf("回收结果失败：%w", writer.err)
+		}
 		return fmt.Errorf("回收结果失败：%w：%s", err, stderr.b.String())
 	}
 	if writer.size == 0 {

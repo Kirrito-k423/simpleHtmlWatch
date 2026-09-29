@@ -34,4 +34,6 @@ jobs:
       - run: node --check web/app.js
       - run: node --check web/history.js
       - run: node --check web/execution.js
+      - run: node --check web/tasks.js
+      - run: node --check web/task-download.js
       - run: node --test tests/*.test.cjs

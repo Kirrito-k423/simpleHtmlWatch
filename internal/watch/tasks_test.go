@@ -1,10 +1,13 @@
 package watch
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +16,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -453,11 +457,67 @@ func TestSSHRemoteTaskLaunchProbeLogsAndCollect(t *testing.T) {
 		t.Fatalf("large task state %q %v", state, err)
 	}
 	largeArchive := fmt.Sprintf("%s/large.tar.gz", t.TempDir())
-	if err := remote.Collect(context.Background(), large, profile, largeArchive); err == nil {
-		t.Fatal("oversized archive accepted")
+	if err := remote.Collect(context.Background(), large, profile, largeArchive); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := os.Stat(largeArchive); !os.IsNotExist(err) {
-		t.Fatal("partial oversized archive retained")
+	info, err := os.Stat(largeArchive)
+	if err != nil || info.Size() <= 5*1024*1024 {
+		t.Fatalf("expected archive larger than old limit: %v %v", info, err)
+	}
+	packed, err := os.Open(largeArchive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer packed.Close()
+	gz, err := gzip.NewReader(packed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gz.Close()
+	// BSD tar may pad the compressed stream; validate the first gzip member.
+	gz.Multistream(false)
+	tarReader := tar.NewReader(gz)
+	found := false
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if header.Name != "results/big.bin" {
+			continue
+		}
+		found = true
+		original, err := os.Open(filepath.Join(home, ".simplehtmlwatch", "tasks", large.ID, "results", "big.bin"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		want, got := sha256.New(), sha256.New()
+		_, originalErr := io.Copy(want, original)
+		original.Close()
+		n, copyErr := io.Copy(got, tarReader)
+		if originalErr != nil || copyErr != nil || n != 6000000 || !bytes.Equal(want.Sum(nil), got.Sum(nil)) {
+			t.Fatalf("full archive content mismatch: %d %v %v", n, originalErr, copyErr)
+		}
+	}
+	if !found {
+		t.Fatal("full result missing from archive")
+	}
+	// Reading to gzip EOF also validates its checksum and footer.
+	if _, err := io.Copy(io.Discard, gz); err != nil {
+		t.Fatal(err)
+	}
+	missing := large
+	missing.ID = "ssh-task-missing"
+	failedPath := filepath.Join(t.TempDir(), "failed.tar.gz")
+	if err := remote.Collect(context.Background(), missing, profile, failedPath); err == nil {
+		t.Fatal("missing remote results accepted")
+	}
+	leftovers, err := os.ReadDir(filepath.Dir(failedPath))
+	if err != nil || len(leftovers) != 0 {
+		t.Fatalf("failed collection left temporary output: %v %v", leftovers, err)
 	}
 }
 

@@ -167,11 +167,8 @@
       if (action === 'logs') state.logs = {id:job.id, ...await request('/logs?id=' + encodeURIComponent(job.id))};
       if (action === 'collect') { await request('/collect?id=' + encodeURIComponent(job.id), 'POST'); await refresh(); }
       if (action === 'download') {
-        const response = await fetch('/api/tasks/archive?id=' + encodeURIComponent(job.id), {headers:{'X-Watch-Token':token}});
-        if (!response.ok) throw new Error('下载失败：HTTP ' + response.status);
-        const url = URL.createObjectURL(await response.blob());
-        const link = document.createElement('a'); link.href = url; link.download = job.id + '.tar.gz'; link.click();
-        setTimeout(() => URL.revokeObjectURL(url), 60000);
+        downloadTaskArchive(job.id, token);
+        state.notice = '已交给浏览器下载，请在浏览器下载列表确认进度与完成状态。';
       }
       state.error = ''; renderDetail(); renderMessage();
     } catch (error) { state.error = error.message; renderMessage(); }

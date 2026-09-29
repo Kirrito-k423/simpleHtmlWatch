@@ -95,7 +95,18 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if strings.HasPrefix(r.URL.Path, "/api/") {
-		if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Watch-Token")), []byte(s.token)) != 1 {
+		token := r.Header.Get("X-Watch-Token")
+		// Native browser downloads cannot set custom headers. Accept the token
+		// in a small POST body on this read-only route only, never in a URL.
+		if r.URL.Path == "/api/tasks/archive" && r.Method == http.MethodPost && token == "" {
+			r.Body = http.MaxBytesReader(w, r.Body, 4096)
+			if err := r.ParseForm(); err != nil {
+				fail(w, 400, "下载请求格式无效")
+				return
+			}
+			token = r.PostForm.Get("token")
+		}
+		if subtle.ConstantTimeCompare([]byte(token), []byte(s.token)) != 1 {
 			fail(w, 403, "页面会话已过期，请重新加载")
 			return
 		}

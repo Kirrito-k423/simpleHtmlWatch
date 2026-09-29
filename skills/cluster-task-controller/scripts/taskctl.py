@@ -3,6 +3,7 @@
 
 import argparse
 import html
+import http.client
 import json
 import os
 from pathlib import Path
@@ -21,6 +22,8 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+MAX_TASK_ARCHIVE = 10 * 1024 * 1024 * 1024
+ARCHIVE_IDLE_TIMEOUT = 5 * 60
 
 
 def base_url(raw):
@@ -178,10 +181,41 @@ class Client:
             self.token = session(url, run_id)
         self.url, self.run_id = url, run_id
 
-    def api(self, path, method="GET", data=None, binary=False):
+    def api(self, path, method="GET", data=None, binary=False, timeout=45):
         self.prepare()
-        raw = request(self.url + "/api/tasks" + path, self.token, method, data, binary, self.run_id)
+        raw = request(self.url + "/api/tasks" + path, self.token, method, data, binary, self.run_id, timeout)
         return raw if binary else json.loads(raw)
+
+
+def save_archive(response, path):
+    """分块保存结果包；拒绝覆盖，失败或中断时移除本次残留文件。"""
+    total = 0
+    created = False
+    try:
+        with response:
+            length = response.headers.get("Content-Length")
+            expected = int(length) if length is not None else None
+            if expected is not None and (expected < 0 or expected > MAX_TASK_ARCHIVE):
+                raise RuntimeError("结果包长度无效或超过 10 GiB 上限")
+            with open(path, "xb") as target:
+                created = True
+                while True:
+                    chunk = response.read(65536)
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > MAX_TASK_ARCHIVE:
+                        raise RuntimeError("结果包超过 10 GiB 上限")
+                    target.write(chunk)
+                if expected is not None and total != expected:
+                    raise RuntimeError(f"结果包下载不完整：预期 {expected} 字节，收到 {total} 字节")
+                if total == 0:
+                    raise RuntimeError("结果包为空")
+    except BaseException:
+        if created:
+            os.remove(path)
+        raise
+    return total
 
 
 def show(value):
@@ -248,7 +282,8 @@ def main():
     elif args.action == "logs":
         show(client.api("/logs?" + urllib.parse.urlencode({"id": args.id})))
     elif args.action == "collect":
-        show(client.api("/collect?" + urllib.parse.urlencode({"id": args.id}), "POST"))
+        # 服务端按 SSH 连续无进度 5 分钟中止；大包回收不设总时长限制。
+        show(client.api("/collect?" + urllib.parse.urlencode({"id": args.id}), "POST", timeout=None))
     elif args.action == "resolve":
         if not args.confirm_remote_stopped:
             raise ValueError("需先独立核实远端进程已停止，再加 --confirm-remote-stopped")
@@ -263,29 +298,13 @@ def main():
             if summary != last:
                 show(job)
                 last = summary
-            if job.get("finishedAt"):
+            if job.get("finishedAt") and (job.get("archiveReady") or job.get("archiveError") or job.get("exitCode") is None):
                 return 0 if job.get("status") == "succeeded" and job.get("archiveReady") else 1
             time.sleep(args.interval)
     elif args.action == "download":
         path = os.path.abspath(args.out)
-        response = client.api("/archive?" + urllib.parse.urlencode({"id": args.id}), binary=True)
-        total = 0
-        created = False
-        try:
-            with response, open(path, "xb") as target:
-                created = True
-                while True:
-                    chunk = response.read(65536)
-                    if not chunk:
-                        break
-                    total += len(chunk)
-                    if total > 5 * 1024 * 1024:
-                        raise RuntimeError("结果包超过 5 MiB")
-                    target.write(chunk)
-        except Exception:
-            if created:
-                os.remove(path)
-            raise
+        response = client.api("/archive?" + urllib.parse.urlencode({"id": args.id}), binary=True, timeout=ARCHIVE_IDLE_TIMEOUT)
+        total = save_archive(response, path)
         print(f"已保存：{path}（{total} 字节）")
     return 0
 
@@ -293,6 +312,6 @@ def main():
 if __name__ == "__main__":
     try:
         sys.exit(main())
-    except (ValueError, RuntimeError, OSError, json.JSONDecodeError) as exc:
+    except (ValueError, RuntimeError, OSError, http.client.HTTPException) as exc:
         print(f"错误：{exc}", file=sys.stderr)
         sys.exit(2)

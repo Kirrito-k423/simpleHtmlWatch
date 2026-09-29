@@ -20,6 +20,10 @@ jobs:
       - run: go test -race ./...
       - run: go vet ./...
       - run: go build ./...
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python -m unittest discover -s tests -p "test_*.py" -v
   frontend:
     runs-on: ubuntu-latest
     steps:
@@ -30,4 +34,6 @@ jobs:
       - run: node --check web/app.js
       - run: node --check web/history.js
       - run: node --check web/execution.js
+      - run: node --check web/tasks.js
+      - run: node --check web/task-download.js
       - run: node --test tests/*.test.cjs

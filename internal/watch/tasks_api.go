@@ -4,7 +4,19 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
+
+// Refresh the deadline for every streamed chunk, rather than imposing the
+// ordinary API's 40-second total response budget on a multi-GiB download.
+type archiveResponseWriter struct{ http.ResponseWriter }
+
+func (w archiveResponseWriter) Write(p []byte) (int, error) {
+	_ = http.NewResponseController(w.ResponseWriter).SetWriteDeadline(time.Now().Add(archiveIdleTimeout))
+	return w.ResponseWriter.Write(p)
+}
+
+func (w archiveResponseWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 func (s *Server) tasksAPI(w http.ResponseWriter, r *http.Request) {
 	if s.tasks == nil {
@@ -97,6 +109,9 @@ func (s *Server) tasksAPI(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, "请提供已完成任务 ID")
 			return
 		}
+		// Collection is bounded by SSH inactivity and manager cancellation,
+		// not by the size-independent timeout used for ordinary API requests.
+		_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
 		job, err := s.tasks.Collect(id)
 		if err != nil {
 			fail(w, 502, err.Error())
@@ -123,7 +138,7 @@ func (s *Server) tasksAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		jsonResponse(w, 200, job)
 	case "/api/tasks/archive":
-		if r.Method != "GET" || id == "" {
+		if (r.Method != "GET" && r.Method != "POST") || id == "" {
 			fail(w, 400, "请提供任务 ID")
 			return
 		}
@@ -139,7 +154,8 @@ func (s *Server) tasksAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Disposition", "attachment; filename=\""+strings.ReplaceAll(id, "\"", "")+".tar.gz\"")
 		w.Header().Set("Content-Type", "application/gzip")
-		http.ServeFile(w, r, path)
+		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(archiveIdleTimeout))
+		http.ServeFile(archiveResponseWriter{w}, r, path)
 	default:
 		w.WriteHeader(404)
 	}

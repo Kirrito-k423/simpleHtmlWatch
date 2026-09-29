@@ -1,3 +1,3 @@
 @echo off
 cd /d "%~dp0"
-"%~dp0simpleHtmlWatch.exe"
+"%~dp0simpleHtmlWatch.exe" %*

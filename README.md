@@ -154,6 +154,10 @@ SSH 默认采用适用于受控内网调试的首次使用信任：第一次发�
 
 ## 命令行
 
+Web 左上角在 `simpleHtmlWatch` 下方显示运行版本，页面标题也包含版本号；悬停版本可查看实例和构建摘要。版本信息来自实际运行程序，不从下载文件名或浏览器本地存储推断。升级后刷新页面即可核对新版本。
+
+Windows 上多个 AI 共用中台时，将 [全局 Prompt](AI-GLOBAL-PROMPT.md) 放入各 AI 工具的全局指令，并让已有会话重新读取。该文件同时包含在所有发布包中，也作为 Release 独立附件提供。
+
 ```powershell
 # 固定本机端口，不自动打开浏览器
 .\simpleHtmlWatch.exe -port 8765 -no-browser

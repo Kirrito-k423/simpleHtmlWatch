@@ -210,6 +210,14 @@ class LifecycleTests(unittest.TestCase):
         after = self.running(second, other_dir)
         self.assertNotEqual(before["url"], after["url"])
         self.assertNotEqual(before["serviceId"], after["serviceId"])
+        for info in (before, after):
+            with taskctl.OPENER.open(info["url"] + "/") as response:
+                page = response.read().decode("utf-8")
+            self.assertIn(f'<title>simpleHtmlWatch {info["version"]}', page)
+            self.assertIn(f'构建：{info["buildId"][:12]}', page)
+            self.assertIn(f'实例：{info["instance"]}', page)
+            self.assertIn(f'>{info["version"]}</span>', page)
+            self.assertNotIn("__WATCH_", page)
         self.client(other_dir, instance="canary").api("/ready")
         with self.assertRaisesRegex(RuntimeError, "串用"):
             self.client(other_dir).discover()

@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="watch-token" content="__WATCH_TOKEN__">
-  <title>simpleHtmlWatch · 机器监控</title>
+  <title>simpleHtmlWatch __WATCH_VERSION__ · 机器监控</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%23c4f36a'/%3E%3Cpath d='M8 23h7l4-12 5 20 3-8h5' fill='none' stroke='%23121b12' stroke-width='3'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/style.css"><script src="/page-rotation.js" defer></script><script src="/app.js" defer></script><script src="/history.js" defer></script><script src="/execution.js" defer></script><script src="/task-timeline.js" defer></script><script src="/tasks.js" defer></script><link rel="stylesheet" href="/execution.css"><link rel="stylesheet" href="/history.css"><link rel="stylesheet" href="/tasks.css">
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="/" aria-label="simpleHtmlWatch 首页"><span class="brand-icon">⌁</span><strong>simpleHtmlWatch</strong></a>
+    <a class="brand" href="/" aria-label="simpleHtmlWatch 首页"><span class="brand-icon">⌁</span><span class="brand-text"><strong>simpleHtmlWatch</strong><span id="service-version" class="service-version" title="运行版本：__WATCH_VERSION__ · 实例：__WATCH_INSTANCE__ · 构建：__WATCH_BUILD__">__WATCH_VERSION__</span></span></a>
     <span id="demo-tag" class="demo-tag" hidden>演示</span>
     <div class="summary" aria-label="机器统计"><span title="已配置"><b id="total">00</b> 台</span><span class="green" title="运行正常"><b id="online">00</b> 正常</span><span title="需要关注"><b id="attention">00</b> 关注</span></div>
     <div class="toolbar" role="region" aria-label="监控工具栏">

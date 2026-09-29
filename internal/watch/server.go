@@ -3,6 +3,7 @@ package watch
 import (
 	"crypto/subtle"
 	"encoding/json"
+	"html"
 	"io"
 	"io/fs"
 	"net/http"
@@ -113,7 +114,18 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if r.Method == http.MethodGet {
-			_, _ = io.WriteString(w, strings.ReplaceAll(string(b), "__WATCH_TOKEN__", s.token))
+			version, instance, build := "版本未知", "未知", "未知"
+			if s.service != nil {
+				version, instance = s.service.Version, s.service.Instance
+				build = s.service.BuildID[:min(12, len(s.service.BuildID))]
+			}
+			page := strings.NewReplacer(
+				"__WATCH_TOKEN__", html.EscapeString(s.token),
+				"__WATCH_VERSION__", html.EscapeString(version),
+				"__WATCH_INSTANCE__", html.EscapeString(instance),
+				"__WATCH_BUILD__", html.EscapeString(build),
+			).Replace(string(b))
+			_, _ = io.WriteString(w, page)
 		}
 		return
 	}

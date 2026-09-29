@@ -11,6 +11,8 @@
 
 ## 交给内部 AI
 
+先把 [简短全局 Prompt](AI-GLOBAL-PROMPT.md) 复制到 Windows 端各 AI 工具的全局指令，让已有会话重新读取。Web 左上角始终显示当前程序版本；悬停版本号可查看实例和构建摘要。
+
 把本包的 `skills/cluster-task-controller/` 目录提供给内部 AI 的 Skill 机制；发布页也单独提供 `cluster-task-controller_*.zip`。若该 AI 不支持自动安装 Skill，就直接让它阅读 `skills/cluster-task-controller/SKILL.md`。同时给它实例名（默认 `default`）；若使用自定义数据目录，再提供该目录。说明运行程序的电脑与 AI 客户端必须是同一台。可以复制下面这段作为测试指令：
 
 > 请先阅读 `skills/cluster-task-controller/SKILL.md`，使用 simpleHtmlWatch 本机任务中台。使用实例【default 或实际实例名】，先运行 discover 校验地址和身份，再只读查询 ready 机器；随后把准备提交的完整命令、目标范围和结果目录展示给我。得到我对这条任务的授权后提交，记录任务 ID，跟踪退出码、日志、归档状态并下载结果。没有指定机器时允许自动调度，不要把 ready 当成 NPU 空闲。若状态为 unknown，不要换 ID 重复执行。端口不可达、版本不符或能力缺失时只报告并重新发现，禁止自动重启、杀进程、删锁或切换服务版本。

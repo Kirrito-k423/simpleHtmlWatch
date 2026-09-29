@@ -23,4 +23,4 @@ jobs:
           if [[ "$GITHUB_REF_NAME" == *-* ]]; then
             flags+=(--prerelease)
           fi
-          gh release create "$GITHUB_REF_NAME" dist/*.zip dist/*.tar.gz dist/SHA256SUMS "${flags[@]}"
+          gh release create "$GITHUB_REF_NAME" dist/simpleHtmlWatch_"${GITHUB_REF_NAME}"_*.zip dist/simpleHtmlWatch_"${GITHUB_REF_NAME}"_*.tar.gz "dist/cluster-task-controller_${GITHUB_REF_NAME}.zip" "dist/AI-GLOBAL-PROMPT_${GITHUB_REF_NAME}.md" dist/SHA256SUMS "${flags[@]}"

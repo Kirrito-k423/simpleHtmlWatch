@@ -473,44 +473,55 @@ func (m *TaskManager) follow(id string, launch bool) {
 		}
 		job, _ = m.Get(id)
 		if job.FinishedAt != nil {
+			if job.ExitCode != nil && !job.ArchiveReady {
+				_, _ = m.Collect(id)
+			}
 			return
 		}
-		profile, err := m.profile(job, false)
-		if err != nil {
-			m.observe(id, "unknown", err.Error())
-			continue
+		if m.probe(id) {
+			_, _ = m.Collect(id)
+			return
 		}
-		state, err := m.remote.Probe(m.ctx, job, profile)
-		if err != nil {
-			m.observe(id, "unknown", "查询远端状态失败："+err.Error())
-			continue
-		}
-		if state == "missing" {
-			m.observe(id, "unknown", "远端任务目录不存在；未确认命令是否曾启动")
-			continue
-		}
-		if state == "lost" || state == "incomplete" {
-			m.observe(id, "unknown", "远端任务未见退出标记，启动文件或进程状态为 "+state)
-			continue
-		}
-		if state == "running" {
-			m.observe(id, "running", "")
-			continue
-		}
+	}
+}
+
+// probe only observes the existing task. Missing PID/exit evidence never releases
+// occupancy, relaunches a command, or invents an exit code.
+func (m *TaskManager) probe(id string) bool {
+	job, ok := m.Get(id)
+	if !ok || job.FinishedAt != nil {
+		return false
+	}
+	profile, err := m.profile(job, false)
+	if err != nil {
+		m.observe(id, "unknown", err.Error())
+		return false
+	}
+	state, err := m.remote.Probe(m.ctx, job, profile)
+	if err != nil {
+		m.observe(id, "unknown", "查询远端状态失败："+err.Error())
+		return false
+	}
+	switch state {
+	case "missing":
+		m.observe(id, "unknown", "远端任务目录不存在；未确认命令是否曾启动")
+	case "lost", "incomplete":
+		m.observe(id, "unknown", "远端任务未见退出标记，启动文件或进程状态为 "+state+"；请核实子进程是否仍在运行")
+	case "running":
+		m.observe(id, "running", "")
+	default:
 		if !strings.HasPrefix(state, "done:") {
 			m.observe(id, "unknown", "远端状态格式无效")
-			continue
+			return false
 		}
 		code, err := strconv.Atoi(strings.TrimPrefix(state, "done:"))
 		if err != nil || code < 0 || code > 255 {
 			m.observe(id, "unknown", "远端退出码无效")
-			continue
+			return false
 		}
-		if m.complete(id, code) {
-			_, _ = m.Collect(id)
-		}
-		return
+		return m.complete(id, code)
 	}
+	return false
 }
 
 func (m *TaskManager) Logs(id string) (TaskLogs, error) {

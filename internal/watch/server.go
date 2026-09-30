@@ -70,7 +70,10 @@ func (*extraJSON) Error() string { return "只允许一个 JSON 对象" }
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Referrer-Policy", "no-referrer")
+	// Preserve the origin of same-origin native POST downloads. no-referrer
+	// makes browsers send Origin: null, which our origin check rightly rejects.
+	// Cross-origin destinations still receive no referrer.
+	w.Header().Set("Referrer-Policy", "same-origin")
 	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 	if r.Host != s.host {
 		fail(w, 403, "仅允许本机访问")

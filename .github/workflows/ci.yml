@@ -35,5 +35,26 @@ jobs:
       - run: node --check web/history.js
       - run: node --check web/execution.js
       - run: node --check web/tasks.js
+      - run: node --check web/task-timeline.js
       - run: node --check web/task-download.js
       - run: node --test tests/*.test.cjs
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium firefox webkit
+      - run: npm run test:browser
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: browser-results
+          path: test-results/

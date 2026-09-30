@@ -29,6 +29,27 @@ func (s *Server) tasksAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch r.URL.Path {
+	case "/api/tasks/machines":
+		if r.Method != "GET" {
+			w.WriteHeader(405)
+			return
+		}
+		jsonResponse(w, 200, s.tasks.Machines())
+	case "/api/tasks/probe":
+		if r.Method != "POST" || id == "" {
+			fail(w, 400, "请提供任务 ID 并使用 POST 重新探测")
+			return
+		}
+		if job, ok := s.tasks.Get(id); !ok {
+			fail(w, 404, "任务不存在")
+			return
+		} else if job.Status == "dispatching" {
+			fail(w, 409, "任务仍在发送，请等待启动结果")
+			return
+		}
+		s.tasks.probe(id)
+		job, _ := s.tasks.Get(id)
+		jsonResponse(w, 200, job)
 	case "/api/tasks/reservations", "/api/tasks/reservations/release":
 		if r.Method == "GET" && r.URL.Path == "/api/tasks/reservations" {
 			jsonResponse(w, 200, map[string]any{"schema": "simplehtmlwatch.reservations.v1", "reservations": s.tasks.Reservations()})

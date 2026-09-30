@@ -108,6 +108,9 @@ func TestHTTPBoundary(t *testing.T) {
 		r.Header.Set("X-Watch-Token", tc.token)
 		w := httptest.NewRecorder()
 		app.ServeHTTP(w, r)
+		if w.Header().Get("Referrer-Policy") != "same-origin" {
+			t.Fatal("same-origin form downloads need their Origin preserved")
+		}
 		if w.Code != tc.want {
 			t.Fatalf("%+v got %d", tc, w.Code)
 		}

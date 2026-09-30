@@ -149,6 +149,8 @@ func TestTaskArchiveFormAuthentication(t *testing.T) {
 		name, path, token, origin string
 		status                    int
 	}{
+		{"same origin browser form", "/api/tasks/archive?id=absent", app.token, "http://127.0.0.1:9999", 404},
+		{"opaque origin remains blocked", "/api/tasks/archive?id=absent", app.token, "null", 403},
 		{"valid form", "/api/tasks/archive?id=absent", app.token, "", 404},
 		{"missing token", "/api/tasks/archive?id=absent", "", "", 403},
 		{"bad token", "/api/tasks/archive?id=absent", "bad", "", 403},

@@ -4,7 +4,7 @@
   const panel = document.querySelector('#task-panel');
   const token = document.querySelector('meta[name="watch-token"]').content;
   const labels = {dispatching:'发送中', running:'运行中', unknown:'结果未知', succeeded:'命令成功', failed:'命令失败', abandoned:'人工解除', archive_ready:'结果已回收', archive_error:'回收失败', legacy_created:'旧记录创建', legacy_finished:'旧记录结束'};
-  const state = {jobs:[], ready:[], machines:[], collapsed:new Set(), view:null, busy:false, selected:null, pending:null, logs:null, notice:'', error:'', refreshing:false, scope:'auto', group:'', machine:''};
+  const state = {jobs:[], ready:[], machines:[], collapsed:new Set(), filter:'running', view:null, busy:false, selected:null, pending:null, logs:null, notice:'', error:'', refreshing:false, scope:'auto', group:'', machine:''};
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
   const full = value => value ? new Date(value).toLocaleString('zh-CN', {hour12:false}) : '—';
   const timeline = window.TaskTimeline;
@@ -63,8 +63,11 @@
     const bounds = timeline.extent(state.jobs, now);
     const view = state.view ? timeline.clamp(state.view, bounds) : bounds;
     if (state.view) state.view = view;
-    const groups = timeline.groupMachines(state.machines, state.jobs);
-    panel.querySelector('#task-count').textContent = `${groups.length} 台机器 · ${state.jobs.length} 条任务`;
+    const visible = timeline.filterJobs(state.jobs, state.filter);
+    const groups = timeline.groupMachines(state.machines, visible);
+    const allGroups = new Map(timeline.groupMachines(state.machines, state.jobs).map(group => [group.key, group.jobs]));
+    panel.querySelector('#task-count').textContent = `${groups.length} 台机器 · 显示 ${visible.length} / ${state.jobs.length} 条任务`;
+    panel.querySelector('#task-filter').value = state.filter;
     panel.querySelector('#task-range').textContent = `${full(view.start)} — ${full(view.end)} · 跨度 ${elapsed(view.end - view.start)}`;
     const ticks = timeline.ticks(view, Math.max(2, (board.clientWidth - 220) / 125));
     const grid = ticks.map(tick => `<i class="task-gridline" data-pos="${tick.percent}"></i>`).join('');
@@ -84,13 +87,14 @@
       }).join('');
       return `<div class="task-lane ${job.id === state.selected ? 'selected' : ''}" role="row"><button class="task-row-title" data-task-id="${esc(job.id)}" role="rowheader" title="${esc(job.id)}"><strong>${esc(job.id)}</strong><span><em class="task-status ${esc(job.status)}">${esc(labels[job.status] || job.status)}</em> · ${elapsed(Math.max(0, end - start))}${job.finishedAt ? '' : '（持续占用）'}</span></button><div class="task-track" role="cell">${grid}${nowLine}${intersects ? `<button class="task-duration ${esc(job.status)}" data-pos="${left}" data-width="${Math.max(0, right - left)}" data-task-id="${esc(job.id)}" aria-label="查看任务 ${esc(job.id)}" title="${esc(full(start))} → ${job.finishedAt ? esc(full(end)) : '现在（未知状态不代表持续运行）'} · ${elapsed(Math.max(0, end - start))}"></button>` : ''}${markers}</div></div>`;
     };
-    board.innerHTML = `<div class="task-axis" role="row"><div class="task-axis-label">实际机器 / 任务</div><div class="task-track" role="columnheader">${ticks.map(tick => `<time data-pos="${tick.percent}" title="${esc(full(tick.at))}">${esc(clock(tick.at))}<small>${esc(new Date(tick.at).toLocaleDateString('zh-CN'))}</small></time>`).join('')}</div></div>${groups.map(group => {
+    board.innerHTML = `<div class="task-axis" role="row"><div class="task-axis-label">实际机器 / 任务</div><div class="task-track" role="columnheader">${ticks.map(tick => `<time data-pos="${tick.percent}" title="${esc(full(tick.at))}">${esc(clock(tick.at))}<small>${esc(new Date(tick.at).toLocaleDateString('zh-CN'))}</small></time>`).join('')}</div></div>${!visible.length && state.filter !== 'all' ? `<div class="task-filter-empty">${state.filter === 'unknown' ? '当前没有结果未知的任务。' : '当前没有运行中或发送中的任务。'}切换“全部任务”可查看历史记录。</div>` : ''}${groups.map(group => {
       const ready = group.machines.some(machine => machine.ready);
-      const active = group.jobs.filter(job => !job.finishedAt).length;
+      const allJobs = allGroups.get(group.key) || [];
+      const active = allJobs.filter(job => !job.finishedAt).length;
       const reason = [...new Set(group.machines.map(machine => machine.reason))].join(' / ') || '历史机器（已移出配置）';
       const reservations = [...new Set(group.machines.flatMap(machine => machine.reservationIds || []))];
       const blockers = [...new Set(group.machines.flatMap(machine => machine.taskIds || []))];
-      return `<section class="task-machine-group" aria-label="${esc(group.name)}"><div class="task-machine-heading"><div><button class="task-machine-toggle" data-machine-toggle="${esc(group.key)}" aria-expanded="${!state.collapsed.has(group.key)}" aria-label="${state.collapsed.has(group.key) ? '展开' : '收起'}机器 ${esc(group.name)}">${state.collapsed.has(group.key) ? '▸' : '▾'} <strong>${esc(group.name)}</strong></button><span>${esc(group.host)}${group.machines.length > 1 ? ` · ${group.machines.length} 个配置别名` : ''}</span></div><span class="${ready ? 'green' : ''}">${esc(reason)} · ${active} 个未结束 / ${group.jobs.length} 个任务</span>${reservations.length ? `<small>预约：${esc(reservations.join(', '))}</small>` : ''}${blockers.length ? `<div class="task-blockers">占用任务：${blockers.map(id => `<button data-task-id="${esc(id)}">${esc(id)}</button>`).join('')}</div>` : ''}</div>${state.collapsed.has(group.key) ? '' : group.jobs.length ? group.jobs.map(row).join('') : '<div class="task-no-jobs">暂无任务记录 · 机器仍在配置中</div>'}</section>`;
+      return `<section class="task-machine-group" aria-label="${esc(group.name)}"><div class="task-machine-heading"><div><button class="task-machine-toggle" data-machine-toggle="${esc(group.key)}" aria-expanded="${!state.collapsed.has(group.key)}" aria-label="${state.collapsed.has(group.key) ? '展开' : '收起'}机器 ${esc(group.name)}">${state.collapsed.has(group.key) ? '▸' : '▾'} <strong>${esc(group.name)}</strong></button><span>${esc(group.host)}${group.machines.length > 1 ? ` · ${group.machines.length} 个配置别名` : ''}</span></div><span class="${ready ? 'green' : ''}">${esc(reason)} · ${active} 个未结束 / ${allJobs.length} 个任务</span>${reservations.length ? `<small>预约：${esc(reservations.join(', '))}</small>` : ''}${blockers.length ? `<div class="task-blockers">占用任务：${blockers.map(id => `<button data-task-id="${esc(id)}">${esc(id)}</button>`).join('')}</div>` : ''}</div>${state.collapsed.has(group.key) ? '' : group.jobs.length ? group.jobs.map(row).join('') : state.filter === 'all' ? '<div class="task-no-jobs">暂无任务记录 · 机器仍在配置中</div>' : ''}</section>`;
     }).join('') || '<div class="task-empty">还没有配置机器，请先返回监控添加机器。</div>'}`;
     // CSSOM assignments are compatible with the strict style-src CSP. No inline
     // style attributes are parsed from task data or HTML templates.
@@ -145,7 +149,7 @@
       state.jobs = Array.isArray(jobs) ? jobs : [];
       state.machines = Array.isArray(machines) ? machines : [];
       state.ready = state.machines.filter(machine => machine.ready);
-      if (!state.selected || !state.jobs.some(job => job.id === state.selected)) state.selected = state.jobs[0]?.id || null;
+      if (!state.selected || !state.jobs.some(job => job.id === state.selected)) state.selected = timeline.filterJobs(state.jobs, state.filter)[0]?.id || null;
       state.error = '';
       render();
     } catch (error) { state.error = '刷新任务失败：' + error.message; renderMessage(); }
@@ -215,9 +219,15 @@
     finally { state.busy = false; }
   }
   panel.innerHTML = `<div class="task-page-head"><div><div class="eyebrow">SSH TASK CONTROLLER / EVENT TIMELINE</div><h1>任务中台</h1><p>按实际机器查看任务时长与里程碑；所有注册机器均可见，忙碌和离线不会隐藏。</p></div><div class="task-head-actions"><div id="task-stats" class="task-stats"></div><button data-task-action="refresh">刷新</button><a href="/">返回监控</a></div></div>
-    <div id="task-message" role="status" hidden></div><div class="task-page-grid"><section class="task-board-card"><div class="task-section-heading"><div><h2>任务时间泳道</h2><p>连续等比例时间轴 · 滚轮缩放鼠标附近时间 · Shift + 滚轮平移</p></div><div class="task-board-nav"><span id="task-count"></span><button data-task-action="collapse">收起机器</button><button data-task-action="fit">全局</button><button data-task-action="zoom-in" aria-label="放大时间轴">＋</button><button data-task-action="zoom-out" aria-label="缩小时间轴">−</button><button data-task-action="pan-left" aria-label="向前平移">‹</button><button data-task-action="pan-right" aria-label="向后平移">›</button><button data-task-action="earliest" aria-label="移到最早事件">← 最早</button><button data-task-action="latest" aria-label="移到最近事件">最近 →</button></div></div><div class="task-timeline-info"><span id="task-range"></span><div class="task-legend"><span class="dispatching">◆ 受理</span><span class="running">● 运行</span><span class="succeeded">✓ 成功</span><span class="failed">✕ 失败</span><span class="unknown">? 未知</span><span class="abandoned">⊘ 解除</span><span class="archive_ready">■ 回收</span></div></div><div id="task-board" class="task-board" role="table" aria-label="按实际机器分组的任务时间轴"></div><p class="task-board-note">时间是中台的受理或观测时间，远端退出可能早于轮询发现。长条表示从受理到结束（或现在）的占用时间；“未知”不证明进程持续运行。选择任务可查看全部里程碑。</p></section>
+    <div id="task-message" role="status" hidden></div><div class="task-page-grid"><section class="task-board-card"><div class="task-section-heading"><div><h2>任务时间泳道</h2><p>连续等比例时间轴 · 滚轮缩放鼠标附近时间 · Shift + 滚轮平移</p></div><div class="task-board-nav"><select id="task-filter" aria-label="筛选任务"><option value="running" selected>运行中（含发送中）</option><option value="unknown">结果未知</option><option value="all">全部任务</option></select><span id="task-count"></span><button data-task-action="collapse">收起机器</button><button data-task-action="fit">全局</button><button data-task-action="zoom-in" aria-label="放大时间轴">＋</button><button data-task-action="zoom-out" aria-label="缩小时间轴">−</button><button data-task-action="pan-left" aria-label="向前平移">‹</button><button data-task-action="pan-right" aria-label="向后平移">›</button><button data-task-action="earliest" aria-label="移到最早事件">← 最早</button><button data-task-action="latest" aria-label="移到最近事件">最近 →</button></div></div><div class="task-timeline-info"><span id="task-range"></span><div class="task-legend"><span class="dispatching">◆ 受理</span><span class="running">● 运行</span><span class="succeeded">✓ 成功</span><span class="failed">✕ 失败</span><span class="unknown">? 未知</span><span class="abandoned">⊘ 解除</span><span class="archive_ready">■ 回收</span></div></div><div id="task-board" class="task-board" role="table" aria-label="按实际机器分组的任务时间轴"></div><p class="task-board-note">时间是中台的受理或观测时间，远端退出可能早于轮询发现。长条表示从受理到结束（或现在）的占用时间；“未知”不证明进程持续运行。选择任务可查看全部里程碑。</p></section>
     <aside class="task-side"><form id="task-form" class="task-compose"><div class="task-section-heading"><h2>发送任务</h2><span>一次调度一台 ready 机器</span></div><label>调度范围<select id="task-scope"><option value="auto">自动调度 · 所有 ready 机器</option><option value="group">指定机器组</option><option value="machine">指定机器</option></select></label><select id="task-group" aria-label="选择机器组" hidden></select><select id="task-machine" aria-label="选择机器" hidden></select><div class="task-preview"><small>预计落点 · 实际机器以提交响应为准</small><div id="task-target"></div></div><label>远端 Bash 命令<textarea id="task-command" rows="5" spellcheck="false" maxlength="4096" placeholder="python train.py --epochs 5&#10;cp summary.json &quot;$SHW_RESULTS_DIR/&quot;"></textarea></label><p>把需要回收的文件写入 <code>$SHW_RESULTS_DIR</code>；stdout 与 stderr 单独保存。自动调度可能选到不同硬件，命令依赖型号时请限定组或机器。ready 不代表 NPU 空闲。</p><button id="task-submit" class="primary" type="submit">发送到 ready 机器</button></form><section id="task-detail" class="task-detail"></section></aside></div>`;
   document.body.classList.add('task-mode'); panel.hidden = false;
+  panel.querySelector('#task-filter').onchange = event => {
+    state.filter = event.target.value;
+    state.selected = timeline.filterJobs(state.jobs, state.filter)[0]?.id || null;
+    state.logs = null;
+    renderBoard(); renderDetail();
+  };
   panel.querySelector('#task-scope').onchange = event => { state.scope = event.target.value; formScope(); };
   panel.querySelector('#task-group').onchange = event => { state.group = event.target.value; formScope(); };
   panel.querySelector('#task-machine').onchange = event => { state.machine = event.target.value; formScope(); };

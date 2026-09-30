@@ -48,9 +48,9 @@ test('按物理资源合并别名，保留无任务机器以及已删除或改�
   const groups = timeline.groupMachines(machines, jobs);
   assert.equal(groups.length, 3);
   assert.equal(groups[0].machines.length, 2);
-  assert.deepEqual(groups[0].jobs.map(job => job.id), ['one-job','alias-job']);
-  assert.equal(groups[1].jobs.length, 0);
-  assert.equal(groups[2].host, 'old-host');
+  assert.deepEqual(groups[0].jobs.map(job => job.id), ['alias-job','one-job']);
+  assert.equal(groups[1].host, 'old-host');
+  assert.equal(groups[2].jobs.length, 0);
 });
 
 test('无任务及坏时间不会产生无效坐标，事件不伪造运行时间', () => {
@@ -58,4 +58,32 @@ test('无任务及坏时间不会产生无效坐标，事件不伪造运行时�
   const events = timeline.eventsFor({id:'legacy', createdAt:iso(start), finishedAt:iso(start + hour), events:[{at:'bad', type:'running'}]});
   assert.deepEqual(events.map(event => event.type), ['legacy_created','legacy_finished']);
   assert.ok(events.every(event => event.legacy));
+});
+
+test('默认仅显示运行中和发送中，未知与历史可切换，排序不改变源记录', () => {
+  const jobs = [
+    {id:'old-running', status:'running', createdAt:iso(start)},
+    {id:'completed', status:'succeeded', createdAt:iso(start + 5 * hour), finishedAt:iso(start + 6 * hour)},
+    {id:'unknown', status:'unknown', createdAt:iso(start + 3 * hour)},
+    {id:'new-dispatch', status:'dispatching', createdAt:iso(start + 2 * hour)},
+    {id:'failed', status:'failed', createdAt:iso(start + 4 * hour), finishedAt:iso(start + 5 * hour)},
+  ];
+  assert.deepEqual(timeline.filterJobs(jobs).map(job => job.id), ['new-dispatch','old-running']);
+  assert.deepEqual(timeline.filterJobs(jobs, 'unknown').map(job => job.id), ['unknown']);
+  assert.deepEqual(timeline.filterJobs(jobs, 'all').map(job => job.id), ['completed','failed','unknown','new-dispatch','old-running']);
+  assert.equal(jobs[0].id, 'old-running');
+  const finished = jobs.map(job => job.id === 'new-dispatch' ? {...job, status:'succeeded', finishedAt:iso(start + 7 * hour)} : job);
+  assert.deepEqual(timeline.filterJobs(finished).map(job => job.id), ['old-running']);
+});
+
+test('最新可见任务所在的机器优先，机器内任务从新到旧，无任务机器仍保留', () => {
+  const machines = [{id:'a',host:'a'}, {id:'b',host:'b'}, {id:'c',host:'c'}];
+  const jobs = [
+    {id:'a-old',host:'a',createdAt:iso(start)},
+    {id:'a-new',host:'a',createdAt:iso(start + hour)},
+    {id:'b-newest',host:'b',createdAt:iso(start + 2 * hour)},
+  ];
+  const groups = timeline.groupMachines(machines,jobs);
+  assert.deepEqual(groups.map(group => group.host), ['b','a','c']);
+  assert.deepEqual(groups[1].jobs.map(job => job.id), ['a-new','a-old']);
 });

@@ -44,6 +44,12 @@
     for (let at = Math.ceil(view.start / step) * step; at <= view.end; at += step) out.push({at, percent:position(at, view)});
     return out;
   }
+  const created = job => Number.isFinite(stamp(job?.createdAt)) ? stamp(job.createdAt) : 0;
+  const newestFirst = (a, b) => created(b) - created(a) || String(a.id).localeCompare(String(b.id));
+  function filterJobs(jobs, mode = 'running') {
+    return jobs.filter(job => mode === 'all' || !job.finishedAt && (mode === 'unknown'
+      ? job.status === 'unknown' : ['running','dispatching'].includes(job.status))).sort(newestFirst);
+  }
   function groupMachines(machines, jobs) {
     const groups = new Map(), byID = new Map(), byHost = new Map();
     const hostKey = host => String(host || '').trim().toLowerCase();
@@ -67,9 +73,10 @@
       }
       group.jobs.push(job);
     }
-    return [...groups.values()].map(group => ({...group, jobs:group.jobs.sort((a, b) => stamp(a.createdAt) - stamp(b.createdAt))}));
+    return [...groups.values()].map(group => ({...group, jobs:group.jobs.sort(newestFirst)}))
+      .sort((a, b) => (b.jobs.length ? created(b.jobs[0]) : -Infinity) - (a.jobs.length ? created(a.jobs[0]) : -Infinity) || 0);
   }
-  const api = {eventsFor, extent, clamp, zoom, pan, position, ticks, groupMachines};
+  const api = {eventsFor, extent, clamp, zoom, pan, position, ticks, groupMachines, filterJobs};
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else window.TaskTimeline = api;
 })();

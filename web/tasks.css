@@ -100,3 +100,5 @@ body.task-mode #task-panel{display:block;width:100%;min-width:0;margin:0}
 @media(max-width:720px){body.task-mode main{padding:12px}.task-page-head{align-items:start;flex-direction:column}.task-head-actions{justify-content:start}.task-side{display:flex}.task-page-head h1{font-size:25px}}
 
 @media(max-width:720px){.task-axis,.task-lane{grid-template-columns:150px minmax(0,1fr)}.task-section-heading{flex-wrap:wrap}.task-stats{flex-wrap:wrap}.task-board-nav{justify-content:start}.task-page-head{gap:10px}.task-board{max-height:65dvh}.task-timeline-info{font-size:10px}}
+
+.task-board-nav select{font-size:11px;padding:3px 7px}.task-filter-empty{padding:16px;color:var(--muted);font-size:12px;border-bottom:1px solid var(--border)}

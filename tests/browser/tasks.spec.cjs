@@ -7,6 +7,8 @@ test('任务中台：全宽机器泳道、线性缩放、原生下载与未知�
   page.on('pageerror', error => pageErrors.push(error.message));
   page.on('console', message => { if (/Content Security Policy|violates.*directive/i.test(message.text())) policyErrors.push(message.text()); });
   await page.goto('/?tasks=1');
+  await expect(page.locator('#task-filter')).toHaveValue('running');
+  await page.locator('#task-filter').selectOption('all');
   await expect(page.locator('.task-machine-group')).toHaveCount(16);
   await expect(page.locator('.task-lane')).toHaveCount(33);
   await expect(page.locator('#task-stats')).toContainText('16 注册机器');

@@ -6,6 +6,8 @@ test('复现旧 no-referrer 策略导致的原生表单 Origin null 拒绝', asy
     await route.fulfill({response, headers:{...response.headers(), 'referrer-policy':'no-referrer'}});
   });
   await page.goto('/?tasks=1');
+  await expect(page.locator('#task-filter')).toHaveValue('running');
+  await page.locator('#task-filter').selectOption('all');
   await page.locator('.task-row-title[data-task-id="history-00"]').click();
   const requestPromise = page.context().waitForEvent('request', request => request.url().includes('/api/tasks/archive'));
   const popupPromise = page.waitForEvent('popup');

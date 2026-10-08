@@ -1,5 +1,13 @@
 # SSH 采集异常排查
 
+## 密码错误后使用 SSH key
+
+在“管理机器 → 共享凭据”填写运行 simpleHtmlWatch 的电脑上的私钥路径，例如 `~/.ssh/id_ed25519` 或 `C:\Users\YOUR_USER\.ssh\id_ed25519`。加密私钥的口令填在“私钥口令”，与 SSH 登录密码分开；远端账号需要已信任对应公钥。默认密码失败后会尝试 SSH key；新凭据密码可留空，已有凭据可勾选“清除已保存密码，仅使用 SSH key”。
+
+私钥路径留空时，macOS/Linux 会尝试程序启动环境的 `SSH_AUTH_SOCK`，然后尝试当前用户 `~/.ssh/` 的 `id_ed25519`、`id_ecdsa`、`id_rsa`。Windows 使用用户目录的私钥文件，目前不支持 OpenSSH agent 命名管道。终端 SSH 能成功而程序仍失败时，核对程序的运行用户、环境和私钥路径；程序不会读取 `~/.ssh/config` 的 `IdentityFile` 或跳板机设置。若服务端提示认证尝试过多，指定对应私钥并使用仅密钥认证，减少候选密钥和错误密码尝试。
+
+“未找到可用的 SSH key”表示没有加载到身份；“无法解锁 SSH 私钥”表示口令不对。主机指纹变化仍需先核对，密钥回退不会绕过这一检查。在线机器的状态悬停和详情页会显示“SSH key 认证”或“密码认证”。
+
 ## `wait: remote command exited without exit status or exit signal`
 
 对应 [issue #1](https://github.com/Kirrito-k423/simpleHtmlWatch/issues/1)。这个错误表示 SSH 会话没有收到退出码或退出信号；它本身不能区分「远端没有发送状态」和「连接提前断开」，也不能证明命令成功或完整输出。

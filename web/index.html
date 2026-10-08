@@ -32,11 +32,11 @@
   </main>
   <dialog id="settings-dialog" class="settings-dialog">
     <form id="settings-form"><div class="dialog-heading"><div><div class="eyebrow">WORKSPACE SETTINGS</div><h2>管理机器与共享凭据</h2></div><button type="button" data-close="settings-dialog" aria-label="关闭设置">✕</button></div>
-      <div class="settings-body"><div class="section-title"><div><h3>01 / 共享凭据</h3><p>同一用户名和密码只保存一次；机器引用后自动复用。</p></div><button type="button" id="add-profile">＋ 新增凭据</button></div><div id="profiles-editor"></div>
+      <div class="settings-body"><div class="section-title"><div><h3>01 / 共享凭据</h3><p>默认先用密码，失败后尝试 SSH key；密钥成功后，该机器后续优先使用密钥。密码可留空。</p><p>私钥路径填写本机绝对路径或 ~/；留空使用 SSH agent / ~/.ssh 默认私钥。</p></div><button type="button" id="add-profile">＋ 新增凭据</button></div><div id="profiles-editor"></div>
       <div class="section-title"><div><h3>02 / 机器列表</h3><p>支持 IP、主机名和自定义 SSH 端口。每屏最多展示 16 台。</p></div><div><button type="button" id="batch-btn">批量添加</button><button type="button" id="add-machine">＋ 添加机器</button></div></div><div id="machines-editor"></div>
       <div class="section-title"><div><h3>03 / 刷新设置</h3><p>保留 SSH 连接，复用会话定期执行监控命令。</p></div><label>间隔 <input id="interval" type="number" min="3" max="3600" value="4" required> 秒</label></div>
       <div class="section-title"><div><h3>04 / 首次连接</h3><p>内网调试默认等待 5 秒后自动信任新机器。已保存的密钥变化时仍需手动核对。</p></div><label><input id="auto-trust" type="checkbox" checked> 自动信任新主机密钥（5 秒）</label></div>
-      <p class="privacy-note">密码以加密配置保存在本机。密钥也位于本机配置目录，请妥善保管该目录；导出配置不会包含密码。</p></div>
+      <p class="privacy-note">密码和私钥口令加密保存在本机，SSH 私钥保留在原文件中。配置解密密钥也在本机目录，请妥善保管；导出配置不会包含密码、私钥口令或私钥内容。</p></div>
       <div id="settings-error" class="form-error" role="alert"></div><div class="dialog-footer"><div><button type="button" id="export-btn">导出无密码配置</button><button type="button" id="import-btn">导入配置</button><input id="import-file" type="file" accept="application/json,.json" hidden></div><div><button type="button" data-close="settings-dialog">取消</button><button type="submit" id="save-btn" class="primary">保存并开始监控</button></div></div>
     </form>
   </dialog>

@@ -75,9 +75,10 @@ dialog::backdrop{background:#000a;backdrop-filter:blur(5px)}
 .section-title p{font-size:12px;margin-top:4px}
 .section-title button{font-size:12px}
 .section-title input{width:78px}
-.profile-row{display:grid;grid-template-columns:1fr 1fr 1.5fr auto;gap:10px;padding:12px;margin:8px 0;border:1px solid var(--border);border-radius:8px}
+.profile-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:12px;margin:8px 0;border:1px solid var(--border);border-radius:8px}
 .profile-row label,.machine-edit label,.batch-body label{display:flex;flex-direction:column;gap:5px;font-size:11px;color:var(--muted)}
 .profile-row button{align-self:end}
+.profile-row .profile-options{grid-column:1/-1;flex-direction:row;align-items:center}
 .machine-edit{border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px}
 .machine-fields{display:grid;grid-template-columns:1fr 1.2fr 75px .8fr 1fr auto;gap:9px}
 .machine-fields button{align-self:end}

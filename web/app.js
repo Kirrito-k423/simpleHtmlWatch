@@ -179,7 +179,7 @@ function render() {
     out.classList.toggle('message', message);
     if (changed) positionOutput(out);
     const updated = `${time(s.updatedAt)}${s.durationMs != null ? ` · ${s.durationMs} ms` : ''}${s.reconnects ? ` · 自动重连 ${s.reconnects} 次` : ''}`;
-    badge.title = `${stateLabel(s)} · ${updated}`;
+    badge.title = `${stateLabel(s)} · ${updated}${s.authMethod ? ` · ${s.authMethod === 'key' ? 'SSH key' : '密码'}认证` : ''}`;
     badge.setAttribute('aria-label', badge.title);
     $('.card-head', card).title = `${m.name} · ${m.host}:${m.port} · ${m.group || '未分组'} · ${updated}`;
     $('.host', card).title = `${m.host}:${m.port}`;
@@ -247,7 +247,7 @@ function openDetail(id) { detailID = id; detailView = resultID(view); updateDeta
 function updateDetail() {
   const m = config.machines.find(m => m.id === detailID); if (!m) return $('#detail-dialog').close();
   const s = states[m.id] || {status:'connecting'};
-  $('#detail-title').textContent = m.name; $('#detail-subtitle').textContent = `${m.host}:${m.port} · ${stateLabel(s)} · ${time(s.updatedAt)}`;
+  $('#detail-title').textContent = m.name; $('#detail-subtitle').textContent = `${m.host}:${m.port} · ${stateLabel(s)} · ${time(s.updatedAt)}${s.authMethod ? ` · ${s.authMethod === 'key' ? 'SSH key' : '密码'}认证` : ''}`;
   if (detailView?.startsWith('custom-') && !customChoices().some(c => c.id === detailView)) detailView = customID;
   $('#detail-tabs').innerHTML = [...commands, ...customChoices()].map(c => `<button data-cmd="${c.id}" class="${detailView === c.id ? 'active' : ''}">${esc(c.name)}</button>`).join('');
   const output = $('#detail-output'), value = textFor(m,s,detailView);
@@ -261,11 +261,11 @@ function openTrust(id) { trustPending = states[id]; $('#trust-title').textConten
 $('#trust-confirm').onclick = async () => { try { await api('trust','POST',{address:trustPending.address,fingerprint:trustPending.fingerprint}); $('#trust-dialog').close(); toast('已保存主机指纹，正在连接'); } catch(e) { $('#trust-error').textContent = e.message; } };
 function profileOptions(selected) { return '<option value="">选择凭据</option>' + draft.profiles.map(p => `<option value="${esc(p.id)}" ${selected === p.id ? 'selected' : ''}>${esc(p.name || '未命名凭据')} · ${esc(p.username || 'root')}</option>`).join(''); }
 function renderEditors() {
-  $('#profiles-editor').innerHTML = draft.profiles.map(p => `<div class="profile-row" data-id="${esc(p.id)}"><label>凭据名称<input data-field="name" value="${esc(p.name)}" placeholder="实验室 root" required></label><label>用户名<input data-field="username" value="${esc(p.username)}" required autocomplete="off"></label><label>SSH 密码${p.hasPassword ? '（已保存，留空保持）' : ''}<input data-field="password" value="${esc(p.password || '')}" type="password" autocomplete="new-password" placeholder="${p.hasPassword ? '留空保持原密码' : '输入密码'}" ${p.hasPassword ? '' : 'required'}></label><button type="button" class="delete" data-remove-profile="${esc(p.id)}">删除</button></div>`).join('') || '<div class="editor-empty">先新增一组凭据，多台机器可以共用。</div>';
+  $('#profiles-editor').innerHTML = draft.profiles.map(p => `<div class="profile-row" data-id="${esc(p.id)}"><label>凭据名称<input data-field="name" value="${esc(p.name)}" placeholder="实验室 root" required></label><label>用户名<input data-field="username" value="${esc(p.username)}" required autocomplete="off"></label><label>SSH 密码${p.hasPassword ? '（已保存，留空保持）' : ''}<input data-field="password" value="${esc(p.password || '')}" type="password" autocomplete="new-password" placeholder="${p.hasPassword ? '留空保持原密码' : '可选，留空使用 SSH key'}"></label><label>本机 SSH 私钥路径<input data-field="privateKeyPath" value="${esc(p.privateKeyPath || '')}" autocomplete="off" spellcheck="false" placeholder="留空使用 SSH agent / 默认私钥"></label><label>私钥口令${p.hasKeyPassphrase ? '（已保存，留空保持）' : ''}<input data-field="keyPassphrase" value="${esc(p.keyPassphrase || '')}" type="password" autocomplete="new-password" placeholder="仅加密私钥需要"></label><button type="button" class="delete" data-remove-profile="${esc(p.id)}">删除</button>${p.hasPassword ? `<label class="profile-options"><input type="checkbox" data-field="clearPassword" ${p.clearPassword ? 'checked' : ''}>清除已保存密码，仅使用 SSH key</label>` : ''}</div>`).join('') || '<div class="editor-empty">先新增一组凭据，多台机器可以共用。</div>';
   $('#machines-editor').innerHTML = draft.machines.map(m => `<div class="machine-edit" data-id="${esc(m.id)}"><div class="machine-fields"><label>机器名称<input data-field="name" value="${esc(m.name)}" required></label><label>IP / 主机名<input data-field="host" value="${esc(m.host)}" required placeholder="192.0.2.11"></label><label>SSH 端口<input data-field="port" type="number" value="${m.port}" min="1" max="65535" required></label><label>分组<input data-field="group" value="${esc(m.group)}" placeholder="训练集群"></label><label>共享凭据<select data-field="profileId" required>${profileOptions(m.profileId)}</select></label><button type="button" class="delete" data-remove-machine="${esc(m.id)}">删除</button></div><div class="machine-options">${commands.map(c => `<label><input type="checkbox" data-command="${c.id}" ${m.commands.includes(c.id) ? 'checked' : ''}>${esc(c.name)}</label>`).join('')}<label class="enabled"><input type="checkbox" data-field="enabled" ${m.enabled ? 'checked' : ''}>启用监控</label></div></div>`).join('') || '<div class="editor-empty">添加机器，或粘贴 IP 列表批量添加。</div>';
 }
 function readEditors() {
-  for (const row of $$('.profile-row')) { const p = draft.profiles.find(p => p.id === row.dataset.id); $$('[data-field]',row).forEach(el => p[el.dataset.field] = el.value); }
+  for (const row of $$('.profile-row')) { const p = draft.profiles.find(p => p.id === row.dataset.id); $$('[data-field]',row).forEach(el => p[el.dataset.field] = el.type === 'checkbox' ? el.checked : el.value); }
   for (const row of $$('.machine-edit')) { const m = draft.machines.find(m => m.id === row.dataset.id); $$('[data-field]',row).forEach(el => m[el.dataset.field] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? Number(el.value) : el.value.trim()); m.commands = $$('[data-command]:checked',row).map(el => el.dataset.command); }
   draft.interval = Number($('#interval').value);
   draft.autoTrustNewKeys = $('#auto-trust').checked;
@@ -304,8 +304,8 @@ $('#batch-confirm').onclick = () => {
   draft.machines.push(...additions); renderEditors(); $('#batch-dialog').close(); toast(`已添加 ${additions.length} 台，保存后生效`);
 };
 $('#export-btn').onclick = () => {
-  readEditors(); const exported = structuredClone(draft); exported.profiles.forEach(p => { delete p.password; delete p.hasPassword; });
-  const url = URL.createObjectURL(new Blob([JSON.stringify(exported,null,2)],{type:'application/json'})); const a = document.createElement('a'); a.href = url; a.download = 'simpleHtmlWatch.config.json'; a.click(); setTimeout(() => URL.revokeObjectURL(url),1000); toast('已导出不含密码的配置');
+  readEditors(); const exported = structuredClone(draft); exported.profiles.forEach(p => { for (const field of ['password','hasPassword','keyPassphrase','hasKeyPassphrase','clearPassword']) delete p[field]; });
+  const url = URL.createObjectURL(new Blob([JSON.stringify(exported,null,2)],{type:'application/json'})); const a = document.createElement('a'); a.href = url; a.download = 'simpleHtmlWatch.config.json'; a.click(); setTimeout(() => URL.revokeObjectURL(url),1000); toast('已导出不含密码和私钥口令的配置');
 };
 $('#import-btn').onclick = () => $('#import-file').click();
 $('#import-file').onchange = async e => {
@@ -327,6 +327,8 @@ $('#import-file').onchange = async e => {
     for (const p of c.profiles) {
       if (!p || !validID(p.id) || seenProfiles.has(p.id) || typeof p.name !== 'string' || typeof p.username !== 'string') throw new Error('凭据格式无效或 ID 重复');
       seenProfiles.add(p.id); p.password = typeof p.password === 'string' ? p.password : ''; p.hasPassword = !!config.profiles.find(old => old.id === p.id && old.hasPassword);
+      p.privateKeyPath = typeof p.privateKeyPath === 'string' ? p.privateKeyPath : ''; p.keyPassphrase = typeof p.keyPassphrase === 'string' ? p.keyPassphrase : ''; p.clearPassword = p.clearPassword === true;
+      p.hasKeyPassphrase = !!config.profiles.find(old => old.id === p.id && old.privateKeyPath === p.privateKeyPath && old.hasKeyPassphrase);
     }
     for (const m of c.machines) {
       if (!m || !validID(m.id) || seenMachines.has(m.id) || !['name','host','group','profileId'].every(k => typeof m[k] === 'string') || !seenProfiles.has(m.profileId) || !Number.isInteger(m.port) || m.port < 1 || m.port > 65535 || typeof m.enabled !== 'boolean' || !Array.isArray(m.commands) || !m.commands.length || !m.commands.every(id => commands.some(cmd => cmd.id === id))) throw new Error('机器格式无效、ID 重复或凭据缺失');
@@ -335,7 +337,7 @@ $('#import-file').onchange = async e => {
     if (!confirm('导入将替换当前编辑中的列表；保存后生效。继续？')) return;
     if (c.autoTrustNewKeys !== undefined && typeof c.autoTrustNewKeys !== 'boolean') throw new Error('自动信任选项需为布尔值');
     c.autoTrustNewKeys ??= true;
-    draft = c; $('#interval').value = c.interval; $('#auto-trust').checked = c.autoTrustNewKeys; renderEditors(); $('#settings-error').textContent = '已导入。新凭据需填写密码，再保存。自定义指令已停止，可在自定义栏查看并启动。';
+    draft = c; $('#interval').value = c.interval; $('#auto-trust').checked = c.autoTrustNewKeys; renderEditors(); $('#settings-error').textContent = '已导入。新凭据请填写密码或配置本机 SSH key，再保存。自定义指令已停止，可在自定义栏查看并启动。';
   } catch(e) { $('#settings-error').textContent = `导入失败：${e.message}`; } finally { e.target.value = ''; }
 };
 function enterDemo() {

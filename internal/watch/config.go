@@ -17,11 +17,15 @@ import (
 )
 
 type Profile struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Username    string `json:"username"`
-	Password    string `json:"password,omitempty"`
-	HasPassword bool   `json:"hasPassword,omitempty"`
+	ID               string `json:"id"`
+	Name             string `json:"name"`
+	Username         string `json:"username"`
+	Password         string `json:"password,omitempty"`
+	HasPassword      bool   `json:"hasPassword,omitempty"`
+	PrivateKeyPath   string `json:"privateKeyPath,omitempty"`
+	KeyPassphrase    string `json:"keyPassphrase,omitempty"`
+	HasKeyPassphrase bool   `json:"hasKeyPassphrase,omitempty"`
+	ClearPassword    bool   `json:"clearPassword,omitempty"` // Edit-only: select key-only authentication.
 }
 type Machine struct {
 	ResourceID string   `json:"resourceId,omitempty"` // Shared by aliases of one physical server.
@@ -132,8 +136,16 @@ func (c Config) Validate() error {
 		if !identifier.MatchString(p.ID) || profiles[p.ID] {
 			return errors.New("凭据 ID 无效或重复")
 		}
-		if strings.TrimSpace(p.Name) == "" || strings.TrimSpace(p.Username) == "" || len(p.Username) > 128 || len(p.Password) > 4096 {
+		if strings.TrimSpace(p.Name) == "" || strings.TrimSpace(p.Username) == "" || len(p.Username) > 128 || len(p.Password) > 4096 || len(p.KeyPassphrase) > 4096 {
 			return errors.New("请填写凭据名称和 SSH 用户名，检查长度")
+		}
+		if len(p.PrivateKeyPath) > 4096 || strings.ContainsAny(p.PrivateKeyPath, "\x00\r\n") {
+			return errors.New("SSH 私钥路径无效或过长")
+		}
+		if p.PrivateKeyPath != "" {
+			if _, err := resolvePrivateKeyPath(p.PrivateKeyPath); err != nil {
+				return err
+			}
 		}
 		profiles[p.ID] = true
 	}
@@ -268,6 +280,8 @@ func (s *Store) Public() Config {
 	for i := range c.Profiles {
 		c.Profiles[i].HasPassword = c.Profiles[i].Password != ""
 		c.Profiles[i].Password = ""
+		c.Profiles[i].HasKeyPassphrase = c.Profiles[i].KeyPassphrase != ""
+		c.Profiles[i].KeyPassphrase = ""
 	}
 	return c
 }
@@ -277,18 +291,23 @@ func (s *Store) Save(c Config) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	old := map[string]string{}
+	old := map[string]Profile{}
 	for _, p := range s.config.Profiles {
-		old[p.ID] = p.Password
+		old[p.ID] = p
 	}
 	for i := range c.Profiles {
-		if c.Profiles[i].Password == "" {
-			c.Profiles[i].Password = old[c.Profiles[i].ID]
+		p := &c.Profiles[i]
+		previous := old[p.ID]
+		p.PrivateKeyPath = strings.TrimSpace(p.PrivateKeyPath)
+		if p.ClearPassword {
+			p.Password = ""
+		} else if p.Password == "" {
+			p.Password = previous.Password
 		}
-		c.Profiles[i].HasPassword = false
-		if c.Profiles[i].Password == "" {
-			return fmt.Errorf("%s：请输入 SSH 密码", c.Profiles[i].Name)
+		if p.KeyPassphrase == "" && p.PrivateKeyPath == previous.PrivateKeyPath {
+			p.KeyPassphrase = previous.KeyPassphrase
 		}
+		p.HasPassword, p.HasKeyPassphrase, p.ClearPassword = false, false, false
 	}
 	if err := c.Validate(); err != nil {
 		return err

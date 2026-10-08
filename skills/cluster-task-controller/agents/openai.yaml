@@ -1,0 +1,4 @@
+interface:
+  display_name: "集群任务中台"
+  short_description: "通过本机任务中台自动调度或指定 SSH 机器，跟踪命令、日志和结果"
+  default_prompt: "使用 $cluster-task-controller 自动选择 ready 机器，提交任务并回收结果。"

@@ -3,6 +3,7 @@ package watch
 import (
 	"crypto/subtle"
 	"encoding/json"
+	"html"
 	"io"
 	"io/fs"
 	"net/http"
@@ -11,7 +12,9 @@ import (
 )
 
 type Server struct {
+	service  *ServiceInfo
 	executor *Executor
+	tasks    *TaskManager
 	store    *Store
 	monitor  *Monitor
 	trust    *TrustStore
@@ -23,6 +26,18 @@ type Server struct {
 
 func NewServer(s *Store, m *Monitor, t *TrustStore, assets fs.FS, host string) *Server {
 	return &Server{executor: NewExecutor(t), store: s, monitor: m, trust: t, assets: assets, host: host, token: randomToken()}
+}
+
+// SetServiceInfo is called once, before serving requests.
+func (s *Server) SetServiceInfo(info ServiceInfo) { s.service = &info }
+
+func (s *Server) EnableTasks() error {
+	tasks, err := NewTaskManager(s.store, s.monitor, s.trust)
+	if err != nil {
+		return err
+	}
+	s.tasks = tasks
+	return nil
 }
 func jsonResponse(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -55,7 +70,10 @@ func (*extraJSON) Error() string { return "只允许一个 JSON 对象" }
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Referrer-Policy", "no-referrer")
+	// Preserve the origin of same-origin native POST downloads. no-referrer
+	// makes browsers send Origin: null, which our origin check rightly rejects.
+	// Cross-origin destinations still receive no referrer.
+	w.Header().Set("Referrer-Policy", "same-origin")
 	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 	if r.Host != s.host {
 		fail(w, 403, "仅允许本机访问")
@@ -65,8 +83,33 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fail(w, 403, "不允许跨站请求")
 		return
 	}
+	if r.URL.Path == "/healthz" && s.service != nil {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		jsonResponse(w, http.StatusOK, s.service)
+		return
+	}
+	// Clients bind every request to the process they probed. A restart or port
+	// reuse between discovery and submission must never execute on a new owner.
+	if runID := r.Header.Get("X-Watch-Instance"); runID != "" && (s.service == nil || runID != s.service.RunID) {
+		fail(w, http.StatusConflict, "实例已变化，请重新发现；写请求不会自动重试")
+		return
+	}
 	if strings.HasPrefix(r.URL.Path, "/api/") {
-		if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Watch-Token")), []byte(s.token)) != 1 {
+		token := r.Header.Get("X-Watch-Token")
+		// Native browser downloads cannot set custom headers. Accept the token
+		// in a small POST body on this read-only route only, never in a URL.
+		if r.URL.Path == "/api/tasks/archive" && r.Method == http.MethodPost && token == "" {
+			r.Body = http.MaxBytesReader(w, r.Body, 4096)
+			if err := r.ParseForm(); err != nil {
+				fail(w, 400, "下载请求格式无效")
+				return
+			}
+			token = r.PostForm.Get("token")
+		}
+		if subtle.ConstantTimeCompare([]byte(token), []byte(s.token)) != 1 {
 			fail(w, 403, "页面会话已过期，请重新加载")
 			return
 		}
@@ -85,7 +128,18 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if r.Method == http.MethodGet {
-			_, _ = io.WriteString(w, strings.ReplaceAll(string(b), "__WATCH_TOKEN__", s.token))
+			version, instance, build := "版本未知", "未知", "未知"
+			if s.service != nil {
+				version, instance = s.service.Version, s.service.Instance
+				build = s.service.BuildID[:min(12, len(s.service.BuildID))]
+			}
+			page := strings.NewReplacer(
+				"__WATCH_TOKEN__", html.EscapeString(s.token),
+				"__WATCH_VERSION__", html.EscapeString(version),
+				"__WATCH_INSTANCE__", html.EscapeString(instance),
+				"__WATCH_BUILD__", html.EscapeString(build),
+			).Replace(string(b))
+			_, _ = io.WriteString(w, page)
 		}
 		return
 	}
@@ -94,6 +148,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/api/executions" {
 		s.executionAPI(w, r)
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/api/tasks") {
+		s.tasksAPI(w, r)
 		return
 	}
 	if strings.HasPrefix(r.URL.Path, "/api/history/") {
@@ -197,4 +255,9 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) Close() { s.executor.Close() }
+func (s *Server) Close() {
+	if s.tasks != nil {
+		s.tasks.Close()
+	}
+	s.executor.Close()
+}

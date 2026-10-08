@@ -3,16 +3,16 @@ package main
 import (
 	"context"
 	"embed"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io/fs"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
-	"path/filepath"
 	"runtime"
+	"syscall"
 	"time"
 
 	"github.com/Kirrito-k423/simpleHtmlWatch/internal/watch"
@@ -29,8 +29,11 @@ func main() {
 	}
 }
 func start() error {
-	port := flag.Int("port", 0, "本机端口，0 自动选择空闲端口")
+	port := flag.Int("port", 0, "首次自动选端口，后续复用登记端口；显式 0 重新选端口")
 	dir := flag.String("data-dir", "", "配置目录，默认用户配置目录下 simpleHtmlWatch")
+	instance := flag.String("instance", "default", "实例名；不同实例使用独立数据目录")
+	status := flag.Bool("status", false, "只读发现实例并验证身份，输出 JSON")
+	adoptBuild := flag.Bool("adopt-build", false, "服务停止后，明确将此构建选为该实例的运行版本")
 	noBrowser := flag.Bool("no-browser", false, "不自动打开浏览器")
 	showVersion := flag.Bool("version", false, "显示版本")
 	flag.Parse()
@@ -38,18 +41,36 @@ func start() error {
 		fmt.Println(version)
 		return nil
 	}
-	if *dir == "" {
-		base, err := os.UserConfigDir()
-		if err != nil {
-			return err
-		}
-		*dir = filepath.Join(base, "simpleHtmlWatch")
-	}
-	unlock, err := watch.LockDirectory(*dir)
+	resolved, err := watch.ResolveServiceDir(*dir, *instance)
 	if err != nil {
 		return err
 	}
-	defer unlock()
+	*dir = resolved
+	if *status {
+		info, err := watch.DiscoverService(*dir, *instance)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(info)
+	}
+	explicitPort := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "port" {
+			explicitPort = true
+		}
+	})
+	lease, existing, err := watch.AcquireService(*dir, *instance, version, *port, explicitPort, *adoptBuild)
+	if err != nil {
+		return err
+	}
+	if existing != nil {
+		fmt.Printf("实例 %s 已运行，复用 %s（运行版本 %s，当前启动器 %s）；没有重启或切换版本。\n", existing.Instance, existing.URL, existing.Version, version)
+		if !*noBrowser {
+			openBrowser(existing.URL)
+		}
+		return nil
+	}
+	defer lease.Close()
 	store, err := watch.NewStore(*dir)
 	if err != nil {
 		return err
@@ -58,11 +79,7 @@ func start() error {
 	if err != nil {
 		return err
 	}
-	listener, err := net.Listen("tcp4", fmt.Sprintf("127.0.0.1:%d", *port))
-	if err != nil {
-		return err
-	}
-	defer listener.Close()
+	listener := lease.Listener
 	history, err := watch.NewHistory(*dir)
 	if err != nil {
 		return err
@@ -74,11 +91,18 @@ func start() error {
 	defer monitor.Close()
 	web, _ := fs.Sub(assets, "web")
 	app := watch.NewServer(store, monitor, trust, web, listener.Addr().String())
+	if err := app.EnableTasks(); err != nil {
+		return err
+	}
 	defer app.Close()
+	app.SetServiceInfo(lease.Info)
+	if err := lease.Publish(); err != nil {
+		return err
+	}
 	server := &http.Server{Handler: app, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 40 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 * 1024}
-	url := "http://" + listener.Addr().String()
-	fmt.Printf("\nsimpleHtmlWatch %s\n\n监控页面：%s\n本机配置：%s\n保持此窗口运行，按 Ctrl+C 退出。\n\n", version, url, *dir)
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	url := lease.Info.URL
+	fmt.Printf("\nsimpleHtmlWatch %s\n\n监控页面：%s\n本机配置：%s\n实例：%s\n发现文件：%s/service.json\n保持此窗口运行，按 Ctrl+C 退出。\n\n", version, url, *dir, *instance, *dir)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go func() {
 		<-ctx.Done()

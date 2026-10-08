@@ -39,6 +39,7 @@ type State struct {
 	LastSuccess time.Time  `json:"lastSuccess"`
 	DurationMs  int64      `json:"durationMs"`
 	Reconnects  int        `json:"reconnects,omitempty"`
+	AuthMethod  string     `json:"authMethod,omitempty"`
 	Fingerprint string     `json:"fingerprint,omitempty"`
 	Address     string     `json:"address,omitempty"`
 	KeyChanged  bool       `json:"keyChanged,omitempty"`
@@ -234,6 +235,7 @@ func (m *Monitor) worker(ctx context.Context, host Machine, profile Profile, sel
 		} else {
 			last = time.Now()
 			s.LastSuccess = last
+			s.AuthMethod = connectionAuthMethod(conn)
 		}
 		s.UpdatedAt = time.Now()
 		s.DurationMs = time.Since(start).Milliseconds()
@@ -271,30 +273,6 @@ func (m *Monitor) worker(ctx context.Context, host Machine, profile Profile, sel
 		case <-timer.C:
 		}
 	}
-}
-func dial(ctx context.Context, addr string, p Profile, cb ssh.HostKeyCallback) (*ssh.Client, net.Conn, error) {
-	d := net.Dialer{Timeout: 8 * time.Second}
-	conn, err := d.DialContext(ctx, "tcp", addr)
-	if err != nil {
-		return nil, nil, fmt.Errorf("SSH 连接失败：%w", err)
-	}
-	stop := context.AfterFunc(ctx, func() { conn.Close() })
-	defer stop()
-	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
-	cfg := &ssh.ClientConfig{User: p.Username, Auth: []ssh.AuthMethod{ssh.Password(p.Password), ssh.KeyboardInteractive(func(_, _ string, questions []string, _ []bool) ([]string, error) {
-		answers := make([]string, len(questions))
-		for i := range answers {
-			answers[i] = p.Password
-		}
-		return answers, nil
-	})}, HostKeyCallback: cb}
-	c, ch, req, err := ssh.NewClientConn(conn, addr, cfg)
-	if err != nil {
-		conn.Close()
-		return nil, nil, err
-	}
-	_ = conn.SetDeadline(time.Time{})
-	return ssh.NewClient(c, ch, req), conn, nil
 }
 
 type boundedOutput struct {

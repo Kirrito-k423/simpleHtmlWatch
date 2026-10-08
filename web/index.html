@@ -3,22 +3,23 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="watch-token" content="__WATCH_TOKEN__">
-  <title>simpleHtmlWatch · 机器监控</title>
+  <title>simpleHtmlWatch __WATCH_VERSION__ · 机器监控</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%23c4f36a'/%3E%3Cpath d='M8 23h7l4-12 5 20 3-8h5' fill='none' stroke='%23121b12' stroke-width='3'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="/style.css"><script src="/page-rotation.js" defer></script><script src="/app.js" defer></script><script src="/history.js" defer></script><script src="/execution.js" defer></script><link rel="stylesheet" href="/execution.css"><link rel="stylesheet" href="/history.css">
+  <link rel="stylesheet" href="/style.css"><script src="/page-rotation.js" defer></script><script src="/app.js" defer></script><script src="/history.js" defer></script><script src="/execution.js" defer></script><script src="/task-timeline.js" defer></script><script src="/task-download.js" defer></script><script src="/tasks.js" defer></script><link rel="stylesheet" href="/execution.css"><link rel="stylesheet" href="/history.css"><link rel="stylesheet" href="/tasks.css">
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="/" aria-label="simpleHtmlWatch 首页"><span class="brand-icon">⌁</span><strong>simpleHtmlWatch</strong></a>
+    <a class="brand" href="/" aria-label="simpleHtmlWatch 首页"><span class="brand-icon">⌁</span><span class="brand-text"><strong>simpleHtmlWatch</strong><span id="service-version" class="service-version" title="运行版本：__WATCH_VERSION__ · 实例：__WATCH_INSTANCE__ · 构建：__WATCH_BUILD__">__WATCH_VERSION__</span></span></a>
     <span id="demo-tag" class="demo-tag" hidden>演示</span>
     <div class="summary" aria-label="机器统计"><span title="已配置"><b id="total">00</b> 台</span><span class="green" title="运行正常"><b id="online">00</b> 正常</span><span title="需要关注"><b id="attention">00</b> 关注</span></div>
     <div class="toolbar" role="region" aria-label="监控工具栏">
       <div class="tabs" id="view-tabs"><button data-view="npu" class="active">NPU 状态</button><button data-view="python">Python 进程</button><button data-view="usage">CPU / 内存</button><button data-view="custom">自定义</button></div>
       <div class="filters"><input id="search" type="search" placeholder="名称 / IP" aria-label="搜索机器"><select id="group-filter" aria-label="机器分组"><option value="">所有分组</option></select><select id="layout" aria-label="同屏台数"><option value="2">2 台 / 屏</option><option value="4">4 台 / 屏</option><option value="8">8 台 / 屏</option><option value="16" selected>16 台 / 屏</option></select><select id="output-position" aria-label="内容位置" title="统一定位所有机器输出的可见区域"><option value="top-left" selected>正文 · 左上</option><option value="top-right">正文 · 右上</option><option value="center">正文 · 居中</option><option value="bottom-left">正文 · 左下</option><option value="bottom-right">正文 · 右下</option></select><button id="refresh-btn" title="立即采集" aria-label="立即采集">↻</button><button id="pause-btn" title="暂停本页面显示更新，后台继续采集">Ⅱ 暂停</button></div>
     </div>
-    <div class="top-actions"><button id="execution-btn">批量执行</button><button id="history-btn">◷ 历史记录</button><button id="settings-btn">⚙ 管理机器</button><button id="fullscreen-btn" title="进入全屏，按 Esc 退出">⛶ 全屏</button></div>
+    <div class="top-actions"><a class="task-top-link" href="/?tasks=1">任务中台</a><button id="execution-btn">批量执行</button><button id="history-btn">◷ 历史记录</button><button id="settings-btn">⚙ 管理机器</button><button id="fullscreen-btn" title="进入全屏，按 Esc 退出">⛶ 全屏</button></div>
   </header>
   <main>
+    <section id="task-panel" aria-label="集群任务中台" hidden></section>
     <form id="custom-form" class="custom-bar" hidden>
       <select id="custom-select" aria-label="选择自定义指令"></select><button id="custom-add" type="button" title="新增自定义指令" aria-label="新增自定义指令">＋</button><input id="custom-name" maxlength="80" required aria-label="指令名称" placeholder="指令名称"><input id="custom-shell" type="text" maxlength="4096" required spellcheck="false" autocomplete="off" aria-label="自定义指令" placeholder="ps -ef | grep tilexr（也支持 watch -n 4）" title="通过远端 Bash 定时执行，请填写可重复执行的短命令">
       <button id="custom-apply" class="primary" type="submit">保存并运行</button><button id="custom-stop" type="button" disabled>停止</button><button id="custom-delete" type="button" title="删除当前指令">删除</button><span id="custom-status" role="status"></span>
@@ -31,11 +32,11 @@
   </main>
   <dialog id="settings-dialog" class="settings-dialog">
     <form id="settings-form"><div class="dialog-heading"><div><div class="eyebrow">WORKSPACE SETTINGS</div><h2>管理机器与共享凭据</h2></div><button type="button" data-close="settings-dialog" aria-label="关闭设置">✕</button></div>
-      <div class="settings-body"><div class="section-title"><div><h3>01 / 共享凭据</h3><p>同一用户名和密码只保存一次；机器引用后自动复用。</p></div><button type="button" id="add-profile">＋ 新增凭据</button></div><div id="profiles-editor"></div>
+      <div class="settings-body"><div class="section-title"><div><h3>01 / 共享凭据</h3><p>默认先用密码，失败后尝试 SSH key；密钥成功后，该机器后续优先使用密钥。密码可留空。</p><p>私钥路径填写本机绝对路径或 ~/；留空使用 SSH agent / ~/.ssh 默认私钥。</p></div><button type="button" id="add-profile">＋ 新增凭据</button></div><div id="profiles-editor"></div>
       <div class="section-title"><div><h3>02 / 机器列表</h3><p>支持 IP、主机名和自定义 SSH 端口。每屏最多展示 16 台。</p></div><div><button type="button" id="batch-btn">批量添加</button><button type="button" id="add-machine">＋ 添加机器</button></div></div><div id="machines-editor"></div>
       <div class="section-title"><div><h3>03 / 刷新设置</h3><p>保留 SSH 连接，复用会话定期执行监控命令。</p></div><label>间隔 <input id="interval" type="number" min="3" max="3600" value="4" required> 秒</label></div>
       <div class="section-title"><div><h3>04 / 首次连接</h3><p>内网调试默认等待 5 秒后自动信任新机器。已保存的密钥变化时仍需手动核对。</p></div><label><input id="auto-trust" type="checkbox" checked> 自动信任新主机密钥（5 秒）</label></div>
-      <p class="privacy-note">密码以加密配置保存在本机。密钥也位于本机配置目录，请妥善保管该目录；导出配置不会包含密码。</p></div>
+      <p class="privacy-note">密码和私钥口令加密保存在本机，SSH 私钥保留在原文件中。配置解密密钥也在本机目录，请妥善保管；导出配置不会包含密码、私钥口令或私钥内容。</p></div>
       <div id="settings-error" class="form-error" role="alert"></div><div class="dialog-footer"><div><button type="button" id="export-btn">导出无密码配置</button><button type="button" id="import-btn">导入配置</button><input id="import-file" type="file" accept="application/json,.json" hidden></div><div><button type="button" data-close="settings-dialog">取消</button><button type="submit" id="save-btn" class="primary">保存并开始监控</button></div></div>
     </form>
   </dialog>

@@ -3,6 +3,7 @@
 package watch
 
 import (
+	"errors"
 	"fmt"
 	"golang.org/x/sys/unix"
 	"os"
@@ -19,7 +20,10 @@ func LockDirectory(dir string) (func(), error) {
 	}
 	if err = unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
 		f.Close()
-		return nil, fmt.Errorf("此配置目录已有程序运行：%s", dir)
+		if errors.Is(err, unix.EWOULDBLOCK) || errors.Is(err, unix.EAGAIN) {
+			return nil, fmt.Errorf("%w：%s", ErrDirectoryInUse, dir)
+		}
+		return nil, fmt.Errorf("配置目录加锁失败：%w", err)
 	}
 	return func() { _ = unix.Flock(int(f.Fd()), unix.LOCK_UN); _ = f.Close() }, nil
 }

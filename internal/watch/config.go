@@ -28,15 +28,16 @@ type Profile struct {
 	ClearPassword    bool   `json:"clearPassword,omitempty"` // Edit-only: select key-only authentication.
 }
 type Machine struct {
-	ResourceID string   `json:"resourceId,omitempty"` // Shared by aliases of one physical server.
-	ID         string   `json:"id"`
-	Name       string   `json:"name"`
-	Host       string   `json:"host"`
-	Port       int      `json:"port"`
-	Group      string   `json:"group"`
-	ProfileID  string   `json:"profileId"`
-	Commands   []string `json:"commands"`
-	Enabled    bool     `json:"enabled"`
+	Netdata    *NetdataConfig `json:"netdata,omitempty"`
+	ResourceID string         `json:"resourceId,omitempty"` // Shared by aliases of one physical server.
+	ID         string         `json:"id"`
+	Name       string         `json:"name"`
+	Host       string         `json:"host"`
+	Port       int            `json:"port"`
+	Group      string         `json:"group"`
+	ProfileID  string         `json:"profileId"`
+	Commands   []string       `json:"commands"`
+	Enabled    bool           `json:"enabled"`
 }
 type Config struct {
 	CustomCommands   []CustomCommand `json:"customCommands"`
@@ -167,6 +168,11 @@ func (c Config) Validate() error {
 		if m.Port < 1 || m.Port > 65535 {
 			return errors.New("SSH 端口需为 1–65535")
 		}
+		if m.Netdata != nil {
+			if err := m.Netdata.Validate(); err != nil {
+				return fmt.Errorf("%s：%w", m.Name, err)
+			}
+		}
 		if !profiles[m.ProfileID] {
 			return fmt.Errorf("%s：请选择有效的共享凭据", m.Name)
 		}
@@ -277,6 +283,13 @@ func clone(c Config) Config {
 func (s *Store) Snapshot() Config { s.mu.Lock(); defer s.mu.Unlock(); return clone(s.config) }
 func (s *Store) Public() Config {
 	c := s.Snapshot()
+	for i := range c.Machines {
+		if n := c.Machines[i].Netdata; n != nil {
+			n.HasToken = n.Token != ""
+			n.Token = ""
+			n.ClearToken = false
+		}
+	}
 	for i := range c.Profiles {
 		c.Profiles[i].HasPassword = c.Profiles[i].Password != ""
 		c.Profiles[i].Password = ""
@@ -286,6 +299,8 @@ func (s *Store) Public() Config {
 	return c
 }
 func (s *Store) Save(c Config) error {
+	// Restoring masked secrets must not populate the caller's public payload.
+	c = clone(c)
 	if err := c.migrateCustomCommand(); err != nil {
 		return err
 	}
@@ -308,6 +323,23 @@ func (s *Store) Save(c Config) error {
 			p.KeyPassphrase = previous.KeyPassphrase
 		}
 		p.HasPassword, p.HasKeyPassphrase, p.ClearPassword = false, false, false
+	}
+	oldMachines := map[string]Machine{}
+	for _, m := range s.config.Machines {
+		oldMachines[m.ID] = m
+	}
+	for i := range c.Machines {
+		m := &c.Machines[i]
+		if n := m.Netdata; n != nil {
+			previous := oldMachines[m.ID]
+			if n.ClearToken {
+				n.Token = ""
+			} else if n.Token == "" && previous.Netdata != nil && previous.Host == m.Host && previous.Port == m.Port && previous.ProfileID == m.ProfileID && previous.Netdata.EffectivePort() == n.EffectivePort() {
+				n.Token = previous.Netdata.Token
+			}
+			n.Port = n.EffectivePort()
+			n.HasToken, n.ClearToken = false, false
+		}
 	}
 	if err := c.Validate(); err != nil {
 		return err

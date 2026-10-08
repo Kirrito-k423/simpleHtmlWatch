@@ -12,6 +12,7 @@ import (
 )
 
 type Server struct {
+	metrics  *Metrics
 	service  *ServiceInfo
 	executor *Executor
 	tasks    *TaskManager
@@ -25,7 +26,7 @@ type Server struct {
 }
 
 func NewServer(s *Store, m *Monitor, t *TrustStore, assets fs.FS, host string) *Server {
-	return &Server{executor: NewExecutor(t), store: s, monitor: m, trust: t, assets: assets, host: host, token: randomToken()}
+	return &Server{metrics: NewMetrics(t), executor: NewExecutor(t), store: s, monitor: m, trust: t, assets: assets, host: host, token: randomToken()}
 }
 
 // SetServiceInfo is called once, before serving requests.
@@ -146,6 +147,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	http.FileServer(http.FS(s.assets)).ServeHTTP(w, r)
 }
 func (s *Server) api(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/api/metrics" {
+		s.metricsAPI(w, r)
+		return
+	}
 	if r.URL.Path == "/api/executions" {
 		s.executionAPI(w, r)
 		return

@@ -4,8 +4,20 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
+
+func TestNetdataDiscoveryCapability(t *testing.T) {
+	lease, existing, err := AcquireService(t.TempDir(), "metrics-test", "test", 0, false, false)
+	if err != nil || existing != nil {
+		t.Fatalf("new isolated service: %v", err)
+	}
+	defer lease.Close()
+	if !slices.Contains(lease.Info.Capabilities, "netdata-metrics-v1") {
+		t.Fatal("metrics API capability missing from service discovery")
+	}
+}
 
 func TestLegacyLockOwnerIsNeverTakenOver(t *testing.T) {
 	dir := t.TempDir()

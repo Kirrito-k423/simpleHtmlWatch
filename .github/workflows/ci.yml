@@ -37,6 +37,8 @@ jobs:
       - run: node --check web/tasks.js
       - run: node --check web/task-timeline.js
       - run: node --check web/task-download.js
+      - run: node --check web/metric-plots.js
+      - run: node --check web/metrics.js
       - run: node --test tests/*.test.cjs
   browser:
     runs-on: ubuntu-latest

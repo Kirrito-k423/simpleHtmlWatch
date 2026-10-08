@@ -4,7 +4,7 @@
 
 ## 1. 安装与启动
 
-从 [预发布页面](https://github.com/Kirrito-k423/simpleHtmlWatch/releases) 下载与本机系统、架构对应的压缩包，解压后按 [内部 AI 试用说明](../AI-START-HERE.md) 启动。Windows 双击 `start.bat`，macOS 双击 `start.command`；Linux 运行 `start.sh`。本机运行程序不需要 Go、Node.js 或 Python。远端需要 Linux、Bash、`base64`、`nohup`、`tail` 和 `tar`，不需要安装 Agent。
+从 [正式发布页面](https://github.com/Kirrito-k423/simpleHtmlWatch/releases/latest) 下载与本机系统、架构对应的压缩包，解压后按 [内部 AI 使用指南](../AI-START-HERE.md) 启动。Windows 双击 `start.bat`，macOS 双击 `start.command`；Linux 运行 `start.sh`。本机运行程序不需要 Go、Node.js 或 Python。远端需要 Linux、Bash、`base64`、`nohup`、`tail` 和 `tar`，不需要安装 Agent。
 
 开发者从源码验证时才需要 Go 1.26 或更新版本，以及运行页面时间轴检查脚本所需的 Node.js：
 

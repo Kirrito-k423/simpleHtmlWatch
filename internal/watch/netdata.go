@@ -54,6 +54,7 @@ const metricPoints = 360
 const maxMetricWindow = int64(7 * 24 * 3600)
 
 var errMetricsBusy = errors.New("系统指标查询繁忙，请稍后刷新")
+var errMetricNoData = errors.New("该指标当前没有采样，请检查采集器与 Agent 历史保留范围")
 
 var metricContexts = []struct{ Context, Name string }{
 	{"system.cpu", "CPU"},
@@ -155,6 +156,7 @@ func (m *Metrics) Query(ctx context.Context, machine Machine, profile Profile, a
 	var info struct {
 		UID     string `json:"uid"`
 		Version string `json:"version"`
+		OSName  string `json:"os_name"`
 	}
 	// v1/info is supported discovery metadata. Metric queries use v3, and
 	// scope_nodes pins the source so a Parent cannot mix in its Child nodes.
@@ -176,13 +178,29 @@ func (m *Metrics) Query(ctx context.Context, machine Machine, profile Profile, a
 			chart := MetricChart{Context: item.Context, Name: item.Name, Series: []MetricSeries{}}
 			q := url.Values{"scope_nodes": {info.UID}, "contexts": {item.Context}, "after": {strconv.FormatInt(after, 10)}, "before": {strconv.FormatInt(before, 10)}, "points": {strconv.Itoa(metricPoints)}, "format": {"json"}, "options": {"jsonwrap,seconds,absolute"}, "group_by": {"dimension"}, "aggregation": {"sum"}, "time_group": {"average"}, "timeout": {"10000"}}
 			if item.Context == "system.cpu" {
-				q.Set("dimensions", "!idle *")
+				// API dimension patterns are pipe-separated, unlike the CLI's
+				// whitespace-separated simple patterns.
+				q.Set("dimensions", "!idle|*")
 			}
 			var data netdataData
 			if _, err := netdataJSON(ctx, client, machine.Netdata.Token, "/api/v3/data", q, &data); err != nil {
 				chart.Error = err.Error()
-			} else if err := data.normalize(&chart); err != nil {
-				chart.Error = err.Error()
+			} else {
+				// The native macOS collector exposes IPv4 bandwidth but may not
+				// publish Linux's system.net aggregate. Keep the narrower scope
+				// explicit, and never fall back after authentication/HTTP errors.
+				if item.Context == "system.net" && strings.EqualFold(info.OSName, "macOS") && data.noData() {
+					chart.Context, chart.Name = "system.ipv4", "网络流量（IPv4）"
+					q.Set("contexts", chart.Context)
+					if _, err := netdataJSON(ctx, client, machine.Netdata.Token, "/api/v3/data", q, &data); err != nil {
+						chart.Error = err.Error()
+					}
+				}
+				if chart.Error == "" {
+					if err := data.normalize(&chart); err != nil {
+						chart.Error = err.Error()
+					}
+				}
 			}
 			out.Charts[i] = chart
 		})
@@ -259,7 +277,14 @@ type netdataData struct {
 	} `json:"result"`
 }
 
+func (d netdataData) noData() bool {
+	return d.DB.UpdateEvery == 0 && len(d.Result.Data) == 0 && len(d.Result.Labels) == 2 && d.Result.Labels[0] == "time" && d.Result.Labels[1] == "no data"
+}
+
 func (d netdataData) normalize(chart *MetricChart) error {
+	if d.noData() {
+		return errMetricNoData
+	}
 	if len(d.Result.Labels) < 2 || d.Result.Labels[0] != "time" || len(d.Result.Labels) > 33 || len(d.Result.Data) > 1000 || d.View.Units == "" || d.DB.UpdateEvery < 1 || d.View.UpdateEvery < 1 {
 		return errors.New("Netdata 指标结构不兼容或规模超出上限")
 	}

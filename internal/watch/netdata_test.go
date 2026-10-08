@@ -139,6 +139,9 @@ func TestMetricsSSHNodeScopeAndPartialData(t *testing.T) {
 		if r.URL.Path != "/api/v3/data" || r.URL.Query().Get("scope_nodes") != metricFixtureNode || r.URL.Query().Get("format") != "json" || r.URL.Query().Get("after") != strconv.FormatInt(after, 10) {
 			t.Errorf("unsafe or malformed metric query: %s", r.URL)
 		}
+		if r.URL.Query().Get("contexts") == "system.cpu" && r.URL.Query().Get("dimensions") != "!idle|*" {
+			t.Error("CPU dimension expression must use the v3 API pipe separator")
+		}
 		if r.URL.Query().Get("contexts") == "system.ram" {
 			w.WriteHeader(404)
 			_, _ = w.Write([]byte("agent response must not leak secret-fixture-token"))
@@ -333,5 +336,52 @@ func TestMetricsMalformedRows(t *testing.T) {
 				t.Fatalf("bad row accepted: %s", rows)
 			}
 		}
+	}
+}
+
+func TestMetricsMacIPv4FallbackScope(t *testing.T) {
+	for _, mode := range []string{"macOS", "Linux", "denied"} {
+		t.Run(mode, func(t *testing.T) {
+			var ipv4Requests atomic.Int32
+			now := time.Now().Unix()
+			machine, profile, trust, _ := metricsSSH(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/api/v1/info" {
+					osName := mode
+					if mode == "denied" {
+						osName = "macOS"
+					}
+					jsonResponse(w, 200, map[string]string{"uid": metricFixtureNode, "os_name": osName})
+					return
+				}
+				switch r.URL.Query().Get("contexts") {
+				case "system.net":
+					if mode == "denied" {
+						w.WriteHeader(http.StatusForbidden)
+						return
+					}
+					// Actual v2.12.0 response shape for an unavailable Mac context.
+					jsonResponse(w, 200, map[string]any{"db": map[string]any{"update_every": 0}, "view": map[string]any{"update_every": 5}, "result": map[string]any{"labels": []string{"time", "no data"}, "data": [][]any{}}})
+				case "system.ipv4":
+					ipv4Requests.Add(1)
+					jsonResponse(w, 200, metricPayload(now-300, now))
+				default:
+					jsonResponse(w, 200, metricPayload(now-300, now))
+				}
+			}))
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			out, err := NewMetrics(trust).Query(ctx, machine, profile, now-300, now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			chart := out.Charts[3]
+			if mode == "macOS" {
+				if ipv4Requests.Load() != 1 || chart.Context != "system.ipv4" || chart.Name != "网络流量（IPv4）" || chart.Error != "" {
+					t.Fatalf("Mac fallback must expose its actual narrower scope: %+v", chart)
+				}
+			} else if ipv4Requests.Load() != 0 || chart.Context != "system.net" || chart.Error == "" {
+				t.Fatalf("Linux or authorization failure must not switch metric source: %+v", chart)
+			}
+		})
 	}
 }

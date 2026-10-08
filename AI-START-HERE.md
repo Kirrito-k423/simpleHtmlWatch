@@ -1,6 +1,6 @@
 # 内部 AI 测试包：从这里开始
 
-本包已包含可执行程序、浏览器任务页面、`skills/cluster-task-controller/` 和完整 [任务 SOP](docs/task-controller.md)。运行本机程序不需要安装 Go、Node.js 或 Python；AI Skill 使用 Python 3 标准库。程序和 AI 客户端必须运行在同一台电脑上，因为服务只监听 `127.0.0.1`。
+本包已包含可执行程序、浏览器任务页面、`skills/cluster-task-controller/`、`skills/simplehtmlwatch-netdata/` 和完整 [任务 SOP](docs/task-controller.md)。运行本机程序不需要安装 Go、Node.js 或 Python；AI Skill 使用 Python 3 标准库。程序和 AI 客户端必须运行在同一台电脑上，因为服务只监听 `127.0.0.1`。
 
 ## 人工启动与页面试用
 
@@ -10,6 +10,8 @@
 4. 第一次只发送无副作用任务，例如 `printf 'ok\n' > "$SHW_RESULTS_DIR/check.txt"`。确认退出码为 0、日志和结果包后，再测试实际工作负载。
 
 点击“系统指标”可查看已启用 Netdata 机器的四类系统曲线；任务详情可打开运行期间指标。默认关闭，接入与验收边界见 [Netdata 接入说明](docs/netdata.md)。实例能力增加 `netdata-metrics-v1`，这是只读观察能力，ready 与调度规则保持原定义。
+
+查看集群指标的 AI 阅读 [simplehtmlwatch-netdata Skill](skills/simplehtmlwatch-netdata/SKILL.md)。也可单独分发 `simplehtmlwatch-netdata_*.zip`；包不包含机器凭据或内部清单。向 AI 提供实际实例名和可选数据目录，依次运行 `metricsctl.py --instance <实例名> discover`、`machines`、`summary`。批量查询会明确报告未接入机器与单项失败，不需向查询 AI 提供 SSH 密码；维护者部署方案见 Skill 的 `references/deployment.md`。
 
 ## 交给内部 AI
 

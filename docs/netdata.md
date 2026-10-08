@@ -67,4 +67,8 @@ GET /api/metrics?taskId=<任务ID>&after=<Unix秒>&before=<Unix秒>
 
 已执行的本地验证使用隔离的 SSH/HTTP fixtures 和合成浏览器数据，覆盖实际 SSH direct-tcpip 链路、主机密钥拒绝、取消超时、JSON 格式、空值/零值、单项失败、请求边界、令牌和任务关联。它们证明客户端行为，不代表真实 Netdata Agent 部署、A3/A2 硬件兼容性或性能开销验收。
 
+另外已在原生 ARM64 macOS 与 ARM64 openEuler 22.03 的 A2 主机上运行真实 Netdata v2.12.0，通过中台独立 SSH 查询取得四个图项的实际数值。macOS 的网络来源为 `system.ipv4`，Linux 为 `system.net`。这些结果证明此次部署和读取链路可用；没有执行训练前后对照，不代表 NPU 性能开销验收，也不能外推尚未部署的 A3 主机。机器清单、认证失败与部署记录保存在本机实例数据目录，不随发布包分发。
+
+批量查询和维护者部署步骤已整理为 [simplehtmlwatch-netdata Skill](../skills/simplehtmlwatch-netdata/SKILL.md)，包含只读 `metricsctl.py`、离线独立试用部署脚本和失败边界。先发现实际实例，再查询 `machines` 与 `summary`；停用、未启用 Agent 和单项失败会明确报告。
+
 Netdata Agent 使用 GPLv3+，现代 Netdata UI 使用 NCUL1。simpleHtmlWatch 使用自己的曲线视图，通过公开 API 与独立 Agent 通信。参见[Netdata 仓库许可说明](https://github.com/netdata/netdata#scroll-license)、[官方 API](https://learn.netdata.cloud/docs/netdata-cloud/authentication-%26-authorization/api-tokens)。

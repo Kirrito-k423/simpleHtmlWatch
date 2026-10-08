@@ -1,0 +1,4 @@
+interface:
+  display_name: "集群系统指标接入"
+  short_description: "发现并核验 simpleHtmlWatch 实例，查询 A2/A3 系统指标并指导维护者安全接入机器"
+  default_prompt: "使用 $simplehtmlwatch-netdata 查看当前集群的 Netdata 接入状态和真实系统指标。"

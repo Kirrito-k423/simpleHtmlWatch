@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """通过已核验的本机中台查询真实集群系统指标。"""
 import argparse
+import datetime
 import json
 import math
 import os
@@ -68,11 +69,48 @@ def summarize(snapshot):
     return result, partial
 
 
+def utilization_path(args):
+    params = {}
+    if args.date:
+        if args.period:
+            raise ValueError("date 与 period 不能同时提供")
+        try:
+            parsed = datetime.date.fromisoformat(args.date)
+        except ValueError as exc:
+            raise ValueError("日期格式须为 YYYY-MM-DD") from exc
+        if parsed.isoformat() != args.date:
+            raise ValueError("日期格式须为 YYYY-MM-DD")
+        params.update(date=args.date, days=args.days or 1)
+    else:
+        if args.days is not None:
+            raise ValueError("days 须与 date 一起提供")
+        params["period"] = args.period or "yesterday"
+    if args.days is not None and not 1 <= args.days <= 30:
+        raise ValueError("查询天数须为 1–30")
+    if args.machine:
+        if not re.fullmatch(r"[a-zA-Z0-9_-]{1,80}", args.machine):
+            raise ValueError("机器 ID 格式无效")
+        params["machineId"] = args.machine
+    if args.group:
+        params["group"] = args.group
+    return "/api/utilization?" + urllib.parse.urlencode(params)
+
+
 def run(args, client):
     if args.action == "discover":
         return client.discover(), 0
     if args.action == "machines":
         return {"machines": machines(client)}, 0
+    if args.action == "utilization":
+        output = client.api(utilization_path(args))
+        if not isinstance(output.get("machines"), list) or output.get("source") != "npu-smi":
+            raise ValueError("利用率汇总响应无效")
+        # Coverage is a separate measurement; absent history is never a zero.
+        output["complete"] = bool(output["machines"]) and not output.get("storageError") and all(
+            row.get("mean") is not None and row.get("coveragePercent", 0) >= 90
+            for row in output["machines"]
+        )
+        return output, 0 if output["complete"] else 3
     if args.action == "query":
         raw = client.api(query_path(args.machine, args.task, args.after, args.before))
         summary, partial = summarize(raw)
@@ -113,6 +151,12 @@ def main(argv=None):
     selector.add_argument("--task", help="任务 ID")
     s = sub.add_parser("summary", help="串行查询目标组所有已启用机器，报告跳过及失败")
     s.add_argument("--group", help="限制机器组")
+    u = sub.add_parser("utilization", help="查询机器级 NPU 小时汇总，不需要启用 Netdata")
+    u.add_argument("--period", choices=("today", "yesterday", "week"), help="今天、昨天或近 7 个完整自然日，默认昨天")
+    u.add_argument("--date", help="起始北京时间日期 YYYY-MM-DD")
+    u.add_argument("--days", type=int, help="与 date 一起提供，最多 30 个自然日")
+    u.add_argument("--machine", help="限制机器 ID")
+    u.add_argument("--group", help="限制机器组")
     for child in (q, s):
         child.add_argument("--after", type=int, help="起始 Unix 秒，与 before 成对")
         child.add_argument("--before", type=int, help="结束 Unix 秒，最多 7 天")
@@ -121,6 +165,8 @@ def main(argv=None):
     try:
         if args.action in ("query", "summary"):
             query_path(machine="validation", after=args.after, before=args.before)
+        if args.action == "utilization":
+            utilization_path(args)
         output, code = run(args, Client(args))
         print(json.dumps(output, ensure_ascii=False, indent=2, allow_nan=False))
         return code

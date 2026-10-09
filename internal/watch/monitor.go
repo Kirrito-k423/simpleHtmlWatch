@@ -47,6 +47,7 @@ type State struct {
 	Results     []Result   `json:"results"`
 }
 type Monitor struct {
+	utilization    *Utilization
 	history        *History
 	mu             sync.RWMutex
 	states         map[string]State
@@ -58,7 +59,8 @@ type Monitor struct {
 	commandTimeout time.Duration
 }
 
-func (m *Monitor) SetHistory(h *History) { m.history = h }
+func (m *Monitor) SetHistory(h *History)         { m.history = h }
+func (m *Monitor) SetUtilization(u *Utilization) { m.utilization = u }
 
 func NewMonitor(t *TrustStore) *Monitor {
 	return &Monitor{trust: t, states: map[string]State{}, triggers: map[string]chan struct{}{}, slots: make(chan struct{}, 8), commandTimeout: 12 * time.Second}
@@ -70,6 +72,9 @@ func (m *Monitor) Replace(c Config) {
 		m.cancel()
 	}
 	m.wg.Wait()
+	if m.utilization != nil {
+		m.utilization.Reset()
+	}
 	m.trust.ResetCountdowns()
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
@@ -114,6 +119,9 @@ func (m *Monitor) Close() {
 		m.cancel()
 	}
 	m.wg.Wait()
+	if m.utilization != nil {
+		m.utilization.Reset()
+	}
 }
 func (m *Monitor) Snapshot() map[string]State {
 	m.mu.RLock()
@@ -250,6 +258,9 @@ func (m *Monitor) worker(ctx context.Context, host Machine, profile Profile, sel
 			live.Results = append(live.Results, result)
 		}
 		m.put(ctx, live)
+		if m.utilization != nil && ctx.Err() == nil {
+			m.utilization.Observe(host, s, interval)
+		}
 		if recording && ctx.Err() == nil {
 			m.history.Append(epoch, HistoryRecord{MachineID: host.ID, MachineName: host.Name, Host: host.Host, StartedAt: start, State: s})
 		}

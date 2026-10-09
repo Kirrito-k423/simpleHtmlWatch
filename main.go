@@ -85,8 +85,15 @@ func start() error {
 		return err
 	}
 	defer history.Close()
+	utilization, err := watch.NewUtilization(*dir)
+	if err != nil {
+		return err
+	}
+	utilization.Start()
+	defer utilization.Close()
 	monitor := watch.NewMonitor(trust)
 	monitor.SetHistory(history)
+	monitor.SetUtilization(utilization)
 	monitor.Replace(store.Snapshot())
 	defer monitor.Close()
 	web, _ := fs.Sub(assets, "web")

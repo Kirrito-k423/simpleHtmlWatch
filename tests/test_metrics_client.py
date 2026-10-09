@@ -112,8 +112,42 @@ class ClientTests(unittest.TestCase):
                 self.client.api(path)
         self.assertEqual(self.requests, [])
 
+    def test_utilization_capability_is_independent_of_netdata(self):
+        self.client.required = {"accelerator-utilization-v1"}
+        self.live["capabilities"] = ["accelerator-utilization-v1"]
+        self.registry.write_text(json.dumps(self.live))
+        self.client.api("/api/utilization?period=yesterday")
+        self.assertEqual(self.requests[-1][0], "/api/utilization?period=yesterday")
+        self.live["capabilities"] = ["netdata-metrics-v1"]
+        self.registry.write_text(json.dumps(self.live))
+        with self.assertRaisesRegex(RuntimeError, "缺少能力"):
+            self.client.discover()
+
 
 class SummaryTests(unittest.TestCase):
+    def test_utilization_missing_history_has_exit_three_without_zero_fill(self):
+        fake = unittest.mock.Mock()
+        fake.api.return_value = {"source": "npu-smi", "machines": [{"id": "m1", "mean": None, "coveragePercent": 0, "hours": [{"mean": None}]}]}
+        args = argparse.Namespace(action="utilization", period="yesterday", date=None, days=None, machine=None, group=None)
+        result, code = metricsctl.run(args, fake)
+        self.assertEqual(code, 3)
+        self.assertIsNone(result["machines"][0]["hours"][0]["mean"])
+        self.assertFalse(result["complete"])
+        fake.api.return_value = {"source": "npu-smi", "machines": [{"mean": 0, "coveragePercent": 100}]}
+        result, code = metricsctl.run(args, fake)
+        self.assertEqual(code, 0)
+        fake.api.return_value["storageError"] = "disk full"
+        self.assertEqual(metricsctl.run(args, fake)[1], 3)
+
+    def test_utilization_query_validates_dates_and_scope(self):
+        args = argparse.Namespace(period=None, date="2026-10-08", days=7, machine="m1", group="A5 B01")
+        path = metricsctl.utilization_path(args)
+        self.assertIn("date=2026-10-08", path)
+        self.assertIn("machineId=m1", path)
+        for changes in ({"date": "2026-99-08"}, {"days": 0}, {"days": 31}, {"period": "week"}, {"machine": "m1&x=1"}, {"date": None}):
+            changed = argparse.Namespace(**(vars(args) | changes))
+            with self.assertRaises(ValueError):
+                metricsctl.utilization_path(changed)
     def test_null_and_zero_are_distinct_and_latest_uses_timestamp(self):
         result, partial = metricsctl.summarize(snapshot())
         self.assertFalse(partial)

@@ -62,6 +62,8 @@ python3 skills/cluster-task-controller/scripts/taskctl.py --instance canary read
 
 需要可选系统指标接口时可核对 `netdata-metrics-v1` 能力，具体查询格式见 [Netdata 接入说明](netdata.md)。能力广告只表示客户端 API 存在，服务器是否已安装、启用 Netdata 仍需按机器确认。
 
+机器级 NPU 利用率小时汇总使用独立能力 `accelerator-utilization-v1`，复用服务的 NPU 监控结果，不依赖 Netdata。其存储、北京时间窗口和覆盖率见 [利用率历史说明](utilization.md)。升级前保留同一实例数据目录；旧构建没有该能力，客户端应报告不兼容，不能因缺少能力自行重启。
+
 ## 历史客户端和旧二进制的迁移边界
 
 历史程序不会认识 `service.json`、构建固定或实例发现，新版无法让已经发布的旧二进制自动遵守这些规则。同一系统账号仍有能力杀掉自己的进程；本功能防止遵守协议的客户端误操作，不隔离拥有相同账号权限的任意命令。

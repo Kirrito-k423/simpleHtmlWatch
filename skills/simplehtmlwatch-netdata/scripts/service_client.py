@@ -83,7 +83,9 @@ class Client:
         self.instance, self.service_id = args.instance, args.service_id
         self.expect_version = args.expect_version
         self.required = set(args.require_capability)
-        if args.action != "discover":
+        if args.action == "utilization":
+            self.required.add("accelerator-utilization-v1")
+        elif args.action != "discover":
             self.required.add("netdata-metrics-v1")
         self.url = self.run_id = self.token = None
 
@@ -135,8 +137,8 @@ class Client:
         return live
 
     def api(self, path):
-        if path.split("?", 1)[0] not in ("/api/config", "/api/status", "/api/metrics"):
-            raise ValueError("只允许机器清单、状态与系统指标接口")
+        if path.split("?", 1)[0] not in ("/api/config", "/api/status", "/api/metrics", "/api/utilization"):
+            raise ValueError("只允许机器清单、状态、系统指标与利用率汇总接口")
         info = self.discover()
         url, run_id = info["url"], info["runId"]
         if self.token is None or (url, run_id) != (self.url, self.run_id):

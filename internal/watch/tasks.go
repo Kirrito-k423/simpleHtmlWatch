@@ -18,11 +18,14 @@ import (
 // TaskRequest describes one durable remote task. With no selector, any ready
 // machine may be chosen; machineId and group remain mutually exclusive.
 type TaskRequest struct {
-	ReservationID string `json:"reservationId,omitempty"`
-	ID            string `json:"id"`
-	Shell         string `json:"shell"`
-	MachineID     string `json:"machineId,omitempty"`
-	Group         string `json:"group,omitempty"`
+	ContinuationID string `json:"continuationId,omitempty"`
+	GrantID        string `json:"grantId,omitempty"`
+	Generation     int    `json:"generation,omitempty"`
+	ReservationID  string `json:"reservationId,omitempty"`
+	ID             string `json:"id"`
+	Shell          string `json:"shell"`
+	MachineID      string `json:"machineId,omitempty"`
+	Group          string `json:"group,omitempty"`
 }
 
 type TaskEvent struct {
@@ -106,18 +109,24 @@ type TaskLogs struct {
 }
 
 type TaskManager struct {
-	reservations map[string]Reservation
-	mu           sync.Mutex
-	dir          string
-	jobs         map[string]*TaskJob
-	store        *Store
-	monitor      *Monitor
-	remote       taskRemote
-	collecting   map[string]bool
-	ctx          context.Context
-	cancel       context.CancelFunc
-	wg           sync.WaitGroup
-	poll         time.Duration
+	continuations        map[string]Continuation
+	stability            map[string]map[string]resourceStability
+	now                  func() time.Time
+	continuationStarted  bool
+	continuationError    string
+	availabilityRevision string
+	reservations         map[string]Reservation
+	mu                   sync.Mutex
+	dir                  string
+	jobs                 map[string]*TaskJob
+	store                *Store
+	monitor              *Monitor
+	remote               taskRemote
+	collecting           map[string]bool
+	ctx                  context.Context
+	cancel               context.CancelFunc
+	wg                   sync.WaitGroup
+	poll                 time.Duration
 }
 
 func NewTaskManager(store *Store, monitor *Monitor, trust *TrustStore) (*TaskManager, error) {
@@ -130,8 +139,12 @@ func newTaskManager(store *Store, monitor *Monitor, remote taskRemote) (*TaskMan
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	m := &TaskManager{dir: dir, jobs: map[string]*TaskJob{}, collecting: map[string]bool{}, store: store, monitor: monitor, remote: remote, ctx: ctx, cancel: cancel, poll: 5 * time.Second}
+	m := &TaskManager{dir: dir, jobs: map[string]*TaskJob{}, collecting: map[string]bool{}, store: store, monitor: monitor, remote: remote, ctx: ctx, cancel: cancel, poll: 5 * time.Second, now: time.Now}
 	if err := m.loadReservations(); err != nil {
+		cancel()
+		return nil, err
+	}
+	if err := m.loadContinuations(); err != nil {
 		cancel()
 		return nil, err
 	}
@@ -159,6 +172,10 @@ func newTaskManager(store *Store, monitor *Monitor, remote taskRemote) (*TaskMan
 				cancel()
 				return nil, errors.New("RESERVATION_STORE_MISSING_FOR_TASK")
 			}
+		}
+		if err := m.validateContinuationTask(job); err != nil {
+			cancel()
+			return nil, err
 		}
 		if job.Status == "dispatching" {
 			job.Status = "unknown" // A crash may have happened after SSH accepted the launch.
@@ -226,6 +243,15 @@ func (m *TaskManager) readyForReservationLocked(c Config, states map[string]Stat
 	busyAddress := map[string]bool{}
 	busyHosts := map[string]bool{}
 	busyResources := map[string]bool{}
+	for _, continuation := range m.continuations {
+		if !continuationOccupied(continuation) || continuation.GrantID == owner {
+			continue
+		}
+		for _, allocation := range continuation.Allocations {
+			busy[allocation.MachineID], busyResources[allocation.ResourceKey] = true, true
+			busyHosts[strings.ToLower(strings.TrimSpace(allocation.Host))] = true
+		}
+	}
 	for _, reservation := range m.reservations {
 		if reservation.ReleasedAt == nil && reservation.ID != owner {
 			busy[reservation.MachineID] = true
@@ -250,7 +276,7 @@ func (m *TaskManager) readyForReservationLocked(c Config, states map[string]Stat
 	for _, machine := range c.Machines {
 		state := states[machine.ID]
 		if !machine.Enabled || busy[machine.ID] || busyHosts[strings.ToLower(strings.TrimSpace(machine.Host))] || busyResources[machineResource(machine)] || busyAddress[net.JoinHostPort(machine.Host, strconv.Itoa(machine.Port))] || machineID != "" && machine.ID != machineID || group != "" && machine.Group != group ||
-			(state.Status != "online" && state.Status != "partial") || state.UpdatedAt.IsZero() || time.Since(state.UpdatedAt) > maxAge {
+			(state.Status != "online" && state.Status != "partial") || state.UpdatedAt.IsZero() || state.UpdatedAt.After(m.now()) || m.now().Sub(state.UpdatedAt) > maxAge {
 			continue
 		}
 		ready = append(ready, ReadyMachine{machine.ID, machine.Name, machine.Group, machine.Host, state.UpdatedAt})
@@ -286,6 +312,10 @@ func (m *TaskManager) Submit(request TaskRequest) (TaskJob, int, error) {
 		}
 		return copyTask(old), 200, nil
 	}
+	owner, err := m.continuationSubmitLocked(request, c, states)
+	if err != nil {
+		return TaskJob{}, 409, err
+	}
 	if request.ReservationID != "" {
 		r, ok := m.reservations[request.ReservationID]
 		if !ok || r.ReleasedAt != nil || request.MachineID != r.MachineID || request.Group != "" {
@@ -301,7 +331,7 @@ func (m *TaskManager) Submit(request TaskRequest) (TaskJob, int, error) {
 			return TaskJob{}, 409, errors.New("RESERVATION_TARGET_CHANGED")
 		}
 	}
-	ready := m.readyForReservationLocked(c, states, request.MachineID, request.Group, request.ReservationID)
+	ready := m.readyForReservationLocked(c, states, request.MachineID, request.Group, owner)
 	if len(ready) == 0 {
 		return TaskJob{}, 409, errors.New("没有符合条件且监控状态新鲜的空闲机器")
 	}
@@ -323,6 +353,9 @@ func (m *TaskManager) Submit(request TaskRequest) (TaskJob, int, error) {
 	now := time.Now()
 	job := &TaskJob{TaskRequest: request, SelectedMachineID: selected.ID, MachineName: selected.Name, Host: host.Host, Port: host.Port, Username: username, Status: "dispatching", CreatedAt: now, UpdatedAt: now}
 	taskEvent(job, now, "dispatching", "任务已受理，分配至 "+selected.Name)
+	if err := m.continuationIntentLocked(request); err != nil {
+		return TaskJob{}, 500, err
+	}
 	if err := os.Mkdir(m.path(job.ID, ""), 0700); err != nil {
 		return TaskJob{}, 500, err
 	}

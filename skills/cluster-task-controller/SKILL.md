@@ -69,6 +69,19 @@ tar -tzf /absolute/path/result.tar.gz
 
 ## 异常判断
 
+### 资源不足时保留原实验并恢复
+
+用户要求实验自动等待并继续时，发现 `experiment-continuations-v1` 后按 [离线运行说明](references/experiment-continuations.md) 保存检查点、准确原对话 ID、授权、资源合同和固定计划。缺少能力交由维护者处理，不自动升级。一次回复可以结束，实验应登记 waiting_resources，不能因资源不足丢弃实验。
+
+1. 用 `await-resources --request` 幂等登记，记录等待 ID、serviceId、实例与目录。原实验及自动继续已有授权时不重复确认，不扩大资源范围或改任务计划。
+2. Codex 桌面原对话优先 heartbeat：通过宿主原对话自动化工具绑定当前对话每 10 分钟检查，按宿主能力增加波谷入口检查，保留原上下文。不得创建 standalone cron、新对话或编辑宿主内部定时文件。保存等待 ID、原实例与检查点，约定状态不变时静默，终态后停用。
+3. bridge 只连接核实归属的已有 App Server 控制 socket。read 返回 notLoaded 不能证明没有别的桌面宿主持有它；默认延后，不能新启动 App Server/fork 绕过。bridge 与 heartbeat 不同时使用。
+4. heartbeat 查询后，waiting_resources 时 continuation-evaluate；offered 时核对检查点，以原 threadId、当前 generation 和 wake.id 领取，再用 grantId continuation-submit。已启动任务只查原 ID，部分启动不整组重跑。
+5. awaiting_review 时核对退出码、回收包、原实验成功判据，再 continuation-report complete 提交 outcome 与证据。下一步存新检查点、新 stepId，不复用旧任务 ID。
+6. 完全没有启动意图/任务时可 release-unused；存在 unknown 或意图则保持占用、查询恢复。暂停时心跳静默检查，不推进；完成、取消、授权到期后停用。只通知重要变化、完成、失败或需要用户输入的事项。
+
+包内桥接用 Python 标准库连接已有 Unix WebSocket。宿主必须实际支持原对话自动化或主动连接；登记和配置唤醒是两步，不能只登记就声称已建立恢复入口。
+
 - `409` 无 ready 机器：检查选定范围、启用状态、监控新鲜度和已有任务，等待后重新查 ready；不要擅自扩大用户明确指定的范围。
 - `unknown`：启动或状态查询无法确认。保持原任务 ID，只查询状态与日志；不要换 ID 重新提交同一命令。未知任务仍占用机器。
 - 若远端任务确已停止、但中台仍显示 `unknown`，先由用户或运维人员独立核实远端进程，再执行 `resolve <任务ID> --confirm-remote-stopped`。它只解除本地占用，不杀远端进程，也不宣称任务成功。无法核实时保持占用。

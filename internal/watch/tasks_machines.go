@@ -9,18 +9,19 @@ import (
 // TaskMachine is inventory, not a scheduling promise. Busy and offline machines
 // remain visible, with the same resource occupancy rules used by Ready.
 type TaskMachine struct {
-	ID             string    `json:"id"`
-	Name           string    `json:"name"`
-	Group          string    `json:"group"`
-	Host           string    `json:"host"`
-	ResourceKey    string    `json:"resourceKey"`
-	Enabled        bool      `json:"enabled"`
-	Status         string    `json:"status"`
-	UpdatedAt      time.Time `json:"updatedAt"`
-	Ready          bool      `json:"ready"`
-	Reason         string    `json:"reason"`
-	TaskIDs        []string  `json:"taskIds"`
-	ReservationIDs []string  `json:"reservationIds"`
+	ID              string    `json:"id"`
+	Name            string    `json:"name"`
+	Group           string    `json:"group"`
+	Host            string    `json:"host"`
+	ResourceKey     string    `json:"resourceKey"`
+	Enabled         bool      `json:"enabled"`
+	Status          string    `json:"status"`
+	UpdatedAt       time.Time `json:"updatedAt"`
+	Ready           bool      `json:"ready"`
+	Reason          string    `json:"reason"`
+	TaskIDs         []string  `json:"taskIds"`
+	ReservationIDs  []string  `json:"reservationIds"`
+	ContinuationIDs []string  `json:"continuationIds"`
 }
 
 func (m *TaskManager) Machines() []TaskMachine {
@@ -51,6 +52,18 @@ func (m *TaskManager) Machines() []TaskMachine {
 				item.ReservationIDs = append(item.ReservationIDs, reservation.ID)
 			}
 		}
+		for id, continuation := range m.continuations {
+			if !continuationOccupied(continuation) {
+				continue
+			}
+			for _, allocation := range continuation.Allocations {
+				if allocation.ResourceKey == item.ResourceKey || strings.EqualFold(allocation.Host, machine.Host) || allocation.MachineID == machine.ID {
+					item.ContinuationIDs = append(item.ContinuationIDs, id)
+					break
+				}
+			}
+		}
+		sort.Strings(item.ContinuationIDs)
 		sort.Strings(item.TaskIDs)
 		sort.Strings(item.ReservationIDs)
 		switch {
@@ -60,6 +73,8 @@ func (m *TaskManager) Machines() []TaskMachine {
 			item.Reason = "任务占用"
 		case len(item.ReservationIDs) > 0:
 			item.Reason = "已被预约"
+		case len(item.ContinuationIDs) > 0:
+			item.Reason = "实验等待单暂留或持有"
 		case state.Status != "online" && state.Status != "partial":
 			item.Reason = "监控未在线"
 		case !item.Ready:

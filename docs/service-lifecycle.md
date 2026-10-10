@@ -81,6 +81,8 @@ python3 skills/cluster-task-controller/scripts/taskctl.py \
 
 ## 验证
 
+实验等待功能广告为 `experiment-continuations-v1`，契约见 [实验等待与原对话继续](experiment-continuations.md)。活动等待单、暂留、Grant 和事件箱保存在 `tasks/continuations.json`，升级时保留。旧构建不认识该占用，有活动记录时不得直接降级运行旧任务调度器；显式 adopt-build 仍需维护者核对数据兼容性。客户端和桥接均不能因能力缺失自动重启或替换。
+
 ```sh
 go test -race ./...
 go vet ./...

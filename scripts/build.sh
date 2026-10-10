@@ -14,7 +14,7 @@ for target in windows/amd64 windows/arm64 darwin/arm64 darwin/amd64 linux/amd64 
   CGO_ENABLED=0 GOOS="$target_os" GOARCH="$target_arch" go build -trimpath -ldflags "-s -w -X main.version=${version}" -o "$folder/$executable" .
   cp README.md LICENSE AI-START-HERE.md AI-GLOBAL-PROMPT.md "$folder/"
   mkdir -p "$folder/docs"
-  cp docs/dashboard.png docs/troubleshooting.md docs/task-controller.md docs/service-lifecycle.md docs/netdata.md docs/utilization.md "$folder/docs/"
+  cp docs/dashboard.png docs/troubleshooting.md docs/task-controller.md docs/service-lifecycle.md docs/netdata.md docs/utilization.md docs/experiment-continuations.md "$folder/docs/"
   mkdir -p "$folder/skills"
   python3 - "$folder/skills" <<'PY'
 import shutil, sys

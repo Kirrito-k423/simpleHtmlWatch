@@ -28,16 +28,17 @@ type Profile struct {
 	ClearPassword    bool   `json:"clearPassword,omitempty"` // Edit-only: select key-only authentication.
 }
 type Machine struct {
-	Netdata    *NetdataConfig `json:"netdata,omitempty"`
-	ResourceID string         `json:"resourceId,omitempty"` // Shared by aliases of one physical server.
-	ID         string         `json:"id"`
-	Name       string         `json:"name"`
-	Host       string         `json:"host"`
-	Port       int            `json:"port"`
-	Group      string         `json:"group"`
-	ProfileID  string         `json:"profileId"`
-	Commands   []string       `json:"commands"`
-	Enabled    bool           `json:"enabled"`
+	Labels     map[string]string `json:"labels,omitempty"` // Declared runtime/topology constraints, not live measurements.
+	Netdata    *NetdataConfig    `json:"netdata,omitempty"`
+	ResourceID string            `json:"resourceId,omitempty"` // Shared by aliases of one physical server.
+	ID         string            `json:"id"`
+	Name       string            `json:"name"`
+	Host       string            `json:"host"`
+	Port       int               `json:"port"`
+	Group      string            `json:"group"`
+	ProfileID  string            `json:"profileId"`
+	Commands   []string          `json:"commands"`
+	Enabled    bool              `json:"enabled"`
 }
 type Config struct {
 	CustomCommands   []CustomCommand `json:"customCommands"`
@@ -152,6 +153,14 @@ func (c Config) Validate() error {
 	}
 	ids := map[string]bool{}
 	for _, m := range c.Machines {
+		if len(m.Labels) > 16 {
+			return errors.New("机器标签最多 16 项")
+		}
+		for key, value := range m.Labels {
+			if !identifier.MatchString(key) || value == "" || len(value) > 160 || strings.ContainsAny(value, "\x00\r\n") {
+				return errors.New("机器标签无效")
+			}
+		}
 		if m.ResourceID != "" && !identifier.MatchString(m.ResourceID) {
 			return errors.New("物理资源 ID 无效")
 		}

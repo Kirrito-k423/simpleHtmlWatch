@@ -38,6 +38,7 @@ func (s *Server) EnableTasks() error {
 		return err
 	}
 	s.tasks = tasks
+	s.tasks.startContinuations()
 	return nil
 }
 func jsonResponse(w http.ResponseWriter, status int, v any) {
@@ -147,6 +148,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	http.FileServer(http.FS(s.assets)).ServeHTTP(w, r)
 }
 func (s *Server) api(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, "/api/continuations") {
+		s.continuationsAPI(w, r)
+		return
+	}
 	if r.URL.Path == "/api/utilization" {
 		s.utilizationAPI(w, r)
 		return

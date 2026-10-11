@@ -253,7 +253,10 @@ func (m *Monitor) worker(ctx context.Context, host Machine, profile Profile, sel
 			if strings.HasPrefix(result.CommandID, "history-") {
 				continue
 			}
-			result.Stdout = ""
+			// The resource gate consumes raw NPU stdout from the live Snapshot.
+			if result.CommandID != "npu" {
+				result.Stdout = ""
+			}
 			result.Stderr = "" // Live cards use combined Output; avoid duplicating historical payloads.
 			live.Results = append(live.Results, result)
 		}

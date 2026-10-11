@@ -70,6 +70,7 @@ func TestAIConnectorNativeGroupBridge(t *testing.T) {
 	app := NewServer(store, monitor, nil, assets, "127.0.0.1:9999")
 	defer app.Close()
 	app.tasks = m
+	app.SetServiceInfo(ServiceInfo{Schema: ServiceSchema, ServiceID: "fixture-service", RunID: "fixture-instance"})
 	server := httptest.NewUnstartedServer(app)
 	app.host = server.Listener.Addr().String()
 	server.Start()

@@ -18,14 +18,16 @@ import (
 // TaskRequest describes one durable remote task. With no selector, any ready
 // machine may be chosen; machineId and group remain mutually exclusive.
 type TaskRequest struct {
-	ContinuationID string `json:"continuationId,omitempty"`
-	GrantID        string `json:"grantId,omitempty"`
-	Generation     int    `json:"generation,omitempty"`
-	ReservationID  string `json:"reservationId,omitempty"`
-	ID             string `json:"id"`
-	Shell          string `json:"shell"`
-	MachineID      string `json:"machineId,omitempty"`
-	Group          string `json:"group,omitempty"`
+	ContinuationID        string `json:"continuationId,omitempty"`
+	GrantID               string `json:"grantId,omitempty"`
+	Generation            int    `json:"generation,omitempty"`
+	ReservationID         string `json:"reservationId,omitempty"`
+	ReservationGrantID    string `json:"reservationGrantId,omitempty"`
+	ReservationGeneration int    `json:"reservationGeneration,omitempty"`
+	ID                    string `json:"id"`
+	Shell                 string `json:"shell"`
+	MachineID             string `json:"machineId,omitempty"`
+	Group                 string `json:"group,omitempty"`
 }
 
 type TaskEvent struct {
@@ -159,6 +161,20 @@ func newTaskManager(store *Store, monitor *Monitor, remote taskRemote) (*TaskMan
 		}
 		b, err := os.ReadFile(filepath.Join(dir, entry.Name(), "job.json"))
 		if err != nil {
+			// A group launch intent is persisted before creating job.json. A
+			// crash in that gap keeps the grant uncertain and queryable.
+			uncertain := false
+			if os.IsNotExist(err) {
+				for _, r := range m.reservations {
+					if r.TaskID == entry.Name() && r.IntentSHA256 != "" {
+						uncertain = true
+						break
+					}
+				}
+			}
+			if uncertain {
+				continue
+			}
 			cancel()
 			return nil, err
 		}
@@ -168,7 +184,8 @@ func newTaskManager(store *Store, monitor *Monitor, remote taskRemote) (*TaskMan
 			return nil, fmt.Errorf("任务记录损坏：%s", entry.Name())
 		}
 		if job.ReservationID != "" {
-			if _, ok := m.reservations[job.ReservationID]; !ok {
+			r, ok := m.reservations[job.ReservationID]
+			if !ok || len(r.MachineIDs) > 0 && (r.IntentSHA256 != continuationTaskHash(job.TaskRequest) || r.GrantID != job.ReservationGrantID || r.Generation != job.ReservationGeneration) {
 				cancel()
 				return nil, errors.New("RESERVATION_STORE_MISSING_FOR_TASK")
 			}
@@ -254,9 +271,11 @@ func (m *TaskManager) readyForReservationLocked(c Config, states map[string]Stat
 	}
 	for _, reservation := range m.reservations {
 		if reservation.ReleasedAt == nil && reservation.ID != owner {
-			busy[reservation.MachineID] = true
-			busyHosts[strings.ToLower(strings.TrimSpace(reservation.Host))] = true
-			busyResources[reservation.ResourceKey] = true
+			for _, a := range reservationAllocations(reservation) {
+				busy[a.MachineID] = true
+				busyHosts[strings.ToLower(strings.TrimSpace(a.Host))] = true
+				busyResources[a.ResourceKey] = true
+			}
 		}
 	}
 	for _, job := range m.jobs {
@@ -321,15 +340,11 @@ func (m *TaskManager) Submit(request TaskRequest) (TaskJob, int, error) {
 		if !ok || r.ReleasedAt != nil || request.MachineID != r.MachineID || request.Group != "" {
 			return TaskJob{}, 409, errors.New("RESERVATION_NOT_OWNED")
 		}
-		valid := false
-		for _, host := range c.Machines {
-			if host.ID == r.MachineID && machineResource(host) == r.ResourceKey && host.Host == r.Host && host.Port == r.Port {
-				valid = true
-			}
+		if err := m.validateReservationRequestLocked(r, request, c, states); err != nil {
+			return TaskJob{}, 409, err
 		}
-		if !valid {
-			return TaskJob{}, 409, errors.New("RESERVATION_TARGET_CHANGED")
-		}
+	} else if request.ReservationGrantID != "" || request.ReservationGeneration != 0 {
+		return TaskJob{}, 409, errors.New("GROUP_GRANT_NOT_OWNED")
 	}
 	ready := m.readyForReservationLocked(c, states, request.MachineID, request.Group, owner)
 	if len(ready) == 0 {
@@ -354,6 +369,9 @@ func (m *TaskManager) Submit(request TaskRequest) (TaskJob, int, error) {
 	job := &TaskJob{TaskRequest: request, SelectedMachineID: selected.ID, MachineName: selected.Name, Host: host.Host, Port: host.Port, Username: username, Status: "dispatching", CreatedAt: now, UpdatedAt: now}
 	taskEvent(job, now, "dispatching", "任务已受理，分配至 "+selected.Name)
 	if err := m.continuationIntentLocked(request); err != nil {
+		return TaskJob{}, 500, err
+	}
+	if err := m.reservationIntentLocked(request); err != nil {
 		return TaskJob{}, 500, err
 	}
 	if err := os.Mkdir(m.path(job.ID, ""), 0700); err != nil {

@@ -13,13 +13,20 @@ import (
 // Reservations have no TTL. Losing a client never proves its remote process ended.
 // An ID is single-use, including after release, and fences all later submissions.
 type Reservation struct {
-	ID          string     `json:"id"`
-	MachineID   string     `json:"machineId"`
-	ResourceKey string     `json:"resourceKey"`
-	Host        string     `json:"host"`
-	Port        int        `json:"port"`
-	CreatedAt   time.Time  `json:"createdAt"`
-	ReleasedAt  *time.Time `json:"releasedAt,omitempty"`
+	ID           string                  `json:"id"`
+	MachineID    string                  `json:"machineId"`
+	ResourceKey  string                  `json:"resourceKey"`
+	Host         string                  `json:"host"`
+	Port         int                     `json:"port"`
+	CreatedAt    time.Time               `json:"createdAt"`
+	ReleasedAt   *time.Time              `json:"releasedAt,omitempty"`
+	MachineIDs   []string                `json:"machineIds,omitempty"`
+	Allocations  []ReservationAllocation `json:"allocations,omitempty"`
+	TaskID       string                  `json:"taskId,omitempty"`
+	PlanSHA256   string                  `json:"planSha256,omitempty"`
+	GrantID      string                  `json:"grantId,omitempty"`
+	Generation   int                     `json:"generation,omitempty"`
+	IntentSHA256 string                  `json:"intentSha256,omitempty"`
 }
 
 func machineResource(machine Machine) string {
@@ -49,6 +56,9 @@ func (m *TaskManager) loadReservations() error {
 		if !identifier.MatchString(id) || r.ID != id || !identifier.MatchString(r.MachineID) || r.ResourceKey == "" || r.CreatedAt.IsZero() {
 			return errors.New("RESERVATION_STORE_CORRUPT")
 		}
+		if err := validateGroupReservation(r); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -71,6 +81,8 @@ func (m *TaskManager) saveReservations(next map[string]Reservation) error {
 func (m *TaskManager) reservationSnapshot() map[string]Reservation {
 	out := map[string]Reservation{}
 	for id, r := range m.reservations {
+		r.MachineIDs = append([]string(nil), r.MachineIDs...)
+		r.Allocations = append([]ReservationAllocation(nil), r.Allocations...)
 		out[id] = r
 	}
 	return out
@@ -89,7 +101,7 @@ func (m *TaskManager) Reserve(id, machineID string) (Reservation, int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if old, ok := m.reservations[id]; ok {
-		if old.MachineID != machineID {
+		if old.MachineID != machineID || len(old.MachineIDs) > 0 {
 			return Reservation{}, 409, errors.New("RESERVATION_CONFLICT")
 		}
 		if old.ReleasedAt != nil {
@@ -130,6 +142,12 @@ func (m *TaskManager) ReleaseReservation(id string) (Reservation, int, error) {
 	for _, job := range m.jobs {
 		if job.ReservationID == id && job.FinishedAt == nil {
 			return Reservation{}, 409, fmt.Errorf("REMOTE_TASK_NOT_STOPPED:%s", job.ID)
+		}
+	}
+	if r.IntentSHA256 != "" {
+		job := m.jobs[r.TaskID]
+		if job == nil || job.FinishedAt == nil {
+			return Reservation{}, 409, errors.New("GROUP_LAUNCH_INTENT_UNCERTAIN")
 		}
 	}
 	now := time.Now()

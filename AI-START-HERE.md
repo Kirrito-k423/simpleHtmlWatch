@@ -35,6 +35,8 @@ AI 使用已更新的 `simplehtmlwatch-netdata` Skill，先 discover 核对 `acc
 
 ## 多 AI 与版本升级
 
+AIConnector 八机任务需要 `atomic-group-reservations-v1`，同实例一次分配完整物理组。控制机绑定固定命令 SHA、任务 ID、Grant 与代数；原启动意图不重放。参见 [整组预留](docs/atomic-group-reservations.md)。本机 API 验收不代表真实 64-rank 实验已通过。
+
 支持 `experiment-continuations-v1` 的构建可登记资源等待单，默认在北京时间 12:30–14:00、02:30–06:00 每分钟检查，其他时间每 10 分钟检查。满足逐设备 NPU、显存、型号和整组数量条件后继续原对话；ready 自身不证明 NPU 空闲。详见 [实验等待与续聊](docs/experiment-continuations.md)。
 
 先保存准确原对话 ID、检查点、固定子任务 ID 和已授权计划，再用 `taskctl.py await-resources --request ...`。桌面原对话优先配置宿主 heartbeat；核实归属的 App Server 可用 `continuation_bridge.py` 主动接续。能读历史不等于拥有当前会话。登记与唤醒入口配置是两步，不能只登记就声称会自动继续。原授权范围内不重复确认，响应不确定先查询，已领取占用不超时释放；完成后核对退出码、回收结果和原实验判据。

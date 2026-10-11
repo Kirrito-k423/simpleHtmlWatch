@@ -5,6 +5,8 @@ description: "当用户要求通过 simpleHtmlWatch 的本机 SSH 任务中台�
 
 # 集群任务中台
 
+AIConnector 整组实验使用能力 `atomic-group-reservations-v1`，详见包内 `docs/atomic-group-reservations.md`。这是固定控制机计划的整组预留；已有 `--group` 任务选择器仍只选择一台。不要用逐台抢锁代替原子分配，不以控制机退出代替全部 rank 结束证据。
+
 使用 `scripts/taskctl.py` 调用用户本机的 simpleHtmlWatch。中台保存 SSH 凭据和主机指纹，并支持密码失败后自动回退到 SSH key；私钥路径属于运行中台的电脑。不要读取、复制或输出密码、私钥及私钥口令。只连接 `127.0.0.1` 或 `localhost` 上的服务。
 
 先定位本 Skill 的全局入口；在终端中可设置：

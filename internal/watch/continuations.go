@@ -290,8 +290,12 @@ func (m *TaskManager) loadContinuations() error {
 					return errors.New("CONTINUATION_GRANT_CORRUPT")
 				}
 				for _, reservation := range m.reservations {
-					if reservation.ReleasedAt == nil && (reservation.ResourceKey == allocation.ResourceKey || strings.EqualFold(reservation.Host, host)) {
-						return errors.New("CONTINUATION_RESERVATION_CONFLICT")
+					if reservation.ReleasedAt == nil {
+						for _, a := range reservationAllocations(reservation) {
+							if a.ResourceKey == allocation.ResourceKey || strings.EqualFold(a.Host, host) {
+								return errors.New("CONTINUATION_RESERVATION_CONFLICT")
+							}
+						}
 					}
 				}
 				usedResources[allocation.ResourceKey], usedHosts[host] = true, true

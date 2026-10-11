@@ -48,8 +48,13 @@ func (m *TaskManager) Machines() []TaskMachine {
 			}
 		}
 		for _, reservation := range m.reservations {
-			if reservation.ReleasedAt == nil && (reservation.MachineID == machine.ID || strings.EqualFold(reservation.Host, machine.Host) || reservation.ResourceKey == item.ResourceKey) {
-				item.ReservationIDs = append(item.ReservationIDs, reservation.ID)
+			if reservation.ReleasedAt == nil {
+				for _, a := range reservationAllocations(reservation) {
+					if a.MachineID == machine.ID || strings.EqualFold(a.Host, machine.Host) || a.ResourceKey == item.ResourceKey {
+						item.ReservationIDs = append(item.ReservationIDs, reservation.ID)
+						break
+					}
+				}
 			}
 		}
 		for id, continuation := range m.continuations {

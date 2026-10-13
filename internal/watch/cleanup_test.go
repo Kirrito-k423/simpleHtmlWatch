@@ -342,3 +342,30 @@ func TestCleanupResidueCanHoldTheRequiredHBM(t *testing.T) {
 		t.Fatal("original allocation HBM budget was relaxed")
 	}
 }
+
+func TestCleanupSlowDiagnosticsDoNotStarveOtherMachines(t *testing.T) {
+	m, mon, now, f, _ := cleanupFixture(t)
+	mon.mu.Lock()
+	for id, state := range mon.states {
+		state.Results[0].Stdout = busyCleanupTable("42")
+		mon.states[id] = state
+	}
+	mon.mu.Unlock()
+	for i := 0; i < 4; i++ {
+		if err := m.CheckCleanup(); err != nil {
+			t.Fatal(err)
+		}
+		*now = now.Add(20 * time.Second)
+		f.snapshot.Uptime += 20
+		mon.mu.Lock()
+		for id, state := range mon.states {
+			state.UpdatedAt = *now
+			state.Results[0].EndedAt = *now
+			mon.states[id] = state
+		}
+		mon.mu.Unlock()
+	}
+	if len(m.cleanup.Audits) != 4 {
+		t.Fatalf("slow first nodes starved another candidate: audits=%d", len(m.cleanup.Audits))
+	}
+}

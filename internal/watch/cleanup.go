@@ -416,7 +416,13 @@ func (m *TaskManager) cleanupTargetsLocked(config Config, states map[string]Stat
 			seen[key] = true
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Machine.ID < out[j].Machine.ID })
+	sort.Slice(out, func(i, j int) bool {
+		a, b := m.cleanup.Next[machineResource(out[i].Machine)], m.cleanup.Next[machineResource(out[j].Machine)]
+		if !a.Equal(b) {
+			return a.Before(b)
+		}
+		return out[i].Machine.ID < out[j].Machine.ID
+	})
 	return out
 }
 func (m *TaskManager) continuationsLockedForCleanup() []Continuation {

@@ -326,6 +326,7 @@ func cleanupCandidate(state State, req ResourceRequirements, now time.Time) (int
 	clone.Results[0].Stdout = sanitized
 	zero := req
 	zero.MaxUtilization = 0
+	zero.MinFreeHBMMB = 0 // A failed residue may itself be holding the required HBM.
 	if _, _, err := resourceSample(Machine{Labels: req.Labels}, clone, zero, now); err != nil {
 		return 0, err
 	}
@@ -567,7 +568,9 @@ func (m *TaskManager) CheckCleanup() error {
 		return err
 	}
 	m.cleanup.Audits[id] = a
-	_, result, signalErr := remote.Cleanup(m.ctx, target.Machine, target.Profile, cleanupRequest{Mode: "terminate", ID: id, PID: target.PID, Baseline: &a.Baseline, Last: &a.Last, Requirements: c.Resources})
+	requirements := c.Resources
+	requirements.MinFreeHBMMB = 0 // Recheck the original HBM budget only after reclaiming the residue.
+	_, result, signalErr := remote.Cleanup(m.ctx, target.Machine, target.Profile, cleanupRequest{Mode: "terminate", ID: id, PID: target.PID, Baseline: &a.Baseline, Last: &a.Last, Requirements: requirements})
 	a.UpdatedAt = m.now()
 	a.SignalResult = result
 	a.Phase = "terminated"

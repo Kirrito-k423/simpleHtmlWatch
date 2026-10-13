@@ -181,7 +181,7 @@ python3 skills/cluster-task-controller/scripts/taskctl.py --instance 实例名 c
 python3 skills/cluster-task-controller/scripts/taskctl.py --instance 实例名 cleanup-policy --disable
 ```
 
-只在已授权、未暂停、未到期的 `waiting_resources` 等待单需要至少 4 台机器且当前合格空闲机器不足时触发。诊断限定于原 group/machineIds、型号、标签、设备总数和 HBM 合同范围；不清理被本中台 task、unknown、reservation、暂留或 Grant 持有的机器，也不替旧的未知任务解除占用。普通单机 `/api/tasks` 和只申请资源的整组 reservation 没有排队等待单，不触发本规则。
+只在已授权、未暂停、未到期的 `waiting_resources` 等待单需要至少 4 台机器且当前合格空闲机器不足时触发。诊断限定于原 group/machineIds、型号、标签和设备总数范围；HBM 预算保留在清理后的原资源分配检查中，不要求失败进程退出前已满足可用 HBM 预算；不清理被本中台 task、unknown、reservation、暂留或 Grant 持有的机器，也不替旧的未知任务解除占用。普通单机 `/api/tasks` 和只申请资源的整组 reservation 没有排队等待单，不触发本规则。
 
 候选必须有完整、新鲜、成功退出的 NPU 原始采样，整机仅一个 NPU 进程行、逐设备利用率均为 0。诊断进一步检查程序年龄超过 300 秒、进程和父进程身份、日志、CPU 与调试证据。当前自动分类器明确支持 Python multiprocessing forkserver 原监督进程退出、仅剩一个 worker 的失败残留；其他结构没有足够事实时记为 unknown，继续等待。不能因为未发现调试器就推断可以终止。
 

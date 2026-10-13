@@ -313,3 +313,32 @@ func TestCleanupAuditReadDoesNotShareMutableEvents(t *testing.T) {
 		}
 	}
 }
+
+func TestCleanupResidueCanHoldTheRequiredHBM(t *testing.T) {
+	m, mon, now, f, r := cleanupFixture(t)
+	output := strings.Replace(busyCleanupTable("42"), "1000 / 65536", "62000 / 65536", 1)
+	mon.mu.Lock()
+	for id, state := range mon.states {
+		if strings.Contains(state.Results[0].Stdout, "42") {
+			state.Results[0].Stdout = output
+			mon.states[id] = state
+		}
+	}
+	mon.mu.Unlock()
+	f.snapshot.NPU = output
+	f.hook = func(q cleanupRequest) {
+		if q.Mode == "terminate" && q.Requirements.MinFreeHBMMB != 0 {
+			t.Fatal("requiring free HBM before reclaiming it")
+		}
+	}
+	runCleanupFiveMinutes(t, m, mon, now, f)
+	if f.signals != 1 {
+		t.Fatal("failed residue excluded by its own HBM allocation")
+	}
+	zero := 0
+	idle := strings.Replace(output, "| 0 | 0 | 42 | python | 302 |", "| No running processes found |", 1)
+	state := State{Results: []Result{{CommandID: "npu", Stdout: idle, ExitCode: &zero, EndedAt: *now}}}
+	if _, _, err := resourceSample(Machine{}, state, r.Resources, *now); err == nil {
+		t.Fatal("original allocation HBM budget was relaxed")
+	}
+}

@@ -18,9 +18,10 @@ type machineReading struct {
 
 // Read only the process-table PID column. A positive PID on any device means
 // the whole machine is occupied; absent/ambiguous tables never mean idle.
-func parseNPUOccupancy(output string) (occupied, known bool) {
+func parseNPUOccupancy(output string, cards map[string]bool) (occupied, known bool) {
 	pidColumn := -1
 	noProcesses, malformed := false, false
+	idleCards := map[string]bool{}
 	for _, line := range strings.Split(output, "\n") {
 		cells := tableCells(line)
 		for i, cell := range cells {
@@ -35,6 +36,16 @@ func parseNPUOccupancy(output string) (occupied, known bool) {
 			noProcesses = true
 			continue
 		}
+		const idlePrefix = "no running processes found in npu "
+		if len(cells) == 1 && strings.HasPrefix(strings.ToLower(cells[0]), idlePrefix) {
+			id, err := strconv.ParseUint(strings.TrimSpace(cells[0][len(idlePrefix):]), 10, 64)
+			if err != nil {
+				malformed = true
+			} else {
+				idleCards[strconv.FormatUint(id, 10)] = true
+			}
+			continue
+		}
 		if pidColumn < len(cells) && strings.EqualFold(cells[pidColumn], "Process id") {
 			continue
 		}
@@ -47,6 +58,15 @@ func parseNPUOccupancy(output string) (occupied, known bool) {
 			return true, true
 		}
 		malformed = true
+	}
+	if !noProcesses && len(cards) > 0 {
+		noProcesses = true
+		for id := range cards {
+			if !idleCards[id] {
+				noProcesses = false
+				break
+			}
+		}
 	}
 	return false, pidColumn >= 0 && noProcesses && !malformed
 }
@@ -169,6 +189,6 @@ func parseNPUUtilization(output string) (machineReading, error) {
 		return reading, fmt.Errorf("机器包含不同 NPU 型号")
 	}
 	reading.model = names[0]
-	reading.occupied, reading.occupancyKnown = parseNPUOccupancy(output)
+	reading.occupied, reading.occupancyKnown = parseNPUOccupancy(output, cards)
 	return reading, nil
 }

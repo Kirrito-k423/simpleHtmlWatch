@@ -19,6 +19,8 @@ func TestOccupancyAnyDeviceProcessAndUnknownTables(t *testing.T) {
 		occupied, known bool
 	}{
 		{"idle", idleUtilizationTable("0"), false, true},
+		{"per_card_idle", strings.Replace(idleUtilizationTable("0"), "| No running processes found |", "| No running processes found in NPU 0 |\n| No running processes found in NPU 1 |", 1), false, true},
+		{"per_card_idle_incomplete", strings.Replace(idleUtilizationTable("0"), "| No running processes found |", "| No running processes found in NPU 0 |", 1), false, false},
 		{"zero_compute_with_process", npuTable("0", "0"), true, true},
 		{"last_device_process", strings.Replace(npuTable("0", "0"), "| 0 | 42 | python | 100 |", "| 7 | 42 | python | 100 |", 1), true, true},
 		{"chip_column", "| NPU ID | Chip ID | Process id | Process name | Process memory(MB) |\n| 7 | 1 | 123 | train | 100 |", true, true},
@@ -31,11 +33,23 @@ func TestOccupancyAnyDeviceProcessAndUnknownTables(t *testing.T) {
 		{"marker_without_header", "| No running processes found |", false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			occupied, known := parseNPUOccupancy(tc.output)
+			occupied, known := parseNPUOccupancy(tc.output, map[string]bool{"0": true, "1": true})
 			if occupied != tc.occupied || known != tc.known {
 				t.Fatalf("got %v/%v want %v/%v", occupied, known, tc.occupied, tc.known)
 			}
 		})
+	}
+}
+
+func TestOccupancyActualA5IdleMarkersCoverAllNPUs(t *testing.T) {
+	output := strings.Replace(idleUtilizationTable("0"), "| No running processes found |", "| No running processes found in NPU 0 |\n| No running processes found in NPU 1 |", 1)
+	r, err := parseNPUUtilization(output)
+	if err != nil || !r.occupancyKnown || r.occupied {
+		t.Fatalf("actual idle format rejected: %+v %v", r, err)
+	}
+	r, err = parseNPUUtilization(strings.Replace(output, "| No running processes found in NPU 1 |", "", 1))
+	if err != nil || r.occupancyKnown {
+		t.Fatal("missing card counted idle")
 	}
 }
 

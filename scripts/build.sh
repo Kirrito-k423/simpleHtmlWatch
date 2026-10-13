@@ -25,6 +25,7 @@ PY
   if [[ "$target_os" == windows ]]; then
     cp scripts/start.bat "$folder/start.bat"
     cp scripts/upgrade.bat "$folder/upgrade.bat"
+    cp WINDOWS-INSTALL.md "$folder/WINDOWS-INSTALL.md"
     (cd dist && zip -qr "${package}.zip" "$package")
   else
     if [[ "$target_os" == darwin ]]; then
@@ -40,8 +41,10 @@ done
 (cd skills && zip -qr "../dist/cluster-task-controller_${version}.zip" cluster-task-controller -x '*/__pycache__/*' '*.pyc')
 (cd skills && zip -qr "../dist/simplehtmlwatch-netdata_${version}.zip" simplehtmlwatch-netdata -x '*/__pycache__/*' '*.pyc')
 cp AI-GLOBAL-PROMPT.md "dist/AI-GLOBAL-PROMPT_${version}.md"
+cp WINDOWS-INSTALL.md dist/WINDOWS-INSTALL.md
 python3 - "$version" <<'PY'
 import hashlib, pathlib, sys
-files = sorted(p for p in pathlib.Path('dist').iterdir() if p.is_file() and (p.name.startswith('simpleHtmlWatch_' + sys.argv[1] + '_') or p.name in ('cluster-task-controller_' + sys.argv[1] + '.zip', 'simplehtmlwatch-netdata_' + sys.argv[1] + '.zip', 'AI-GLOBAL-PROMPT_' + sys.argv[1] + '.md')))
+files = sorted(p for p in pathlib.Path('dist').iterdir() if p.is_file() and (p.name.startswith('simpleHtmlWatch_' + sys.argv[1] + '_') or p.name in ('cluster-task-controller_' + sys.argv[1] + '.zip', 'simplehtmlwatch-netdata_' + sys.argv[1] + '.zip', 'AI-GLOBAL-PROMPT_' + sys.argv[1] + '.md', 'WINDOWS-INSTALL.md')))
 pathlib.Path('dist/SHA256SUMS').write_text(''.join(f'{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n' for p in files))
 PY
+python3 scripts/verify-packages.py "$version"

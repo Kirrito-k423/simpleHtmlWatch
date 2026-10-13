@@ -8,6 +8,8 @@
 
 ## 开箱即用
 
+整机占用小时统计与任务中台的占卡残留诊断、清理开关已合并到同一程序包。Windows 安装、保留数据升级及两项功能入口见 [Windows 使用说明](WINDOWS-INSTALL.md)；预发布用户在 Releases 中选择包含两项能力的对应版本。
+
 1. 从 [Releases](https://github.com/Kirrito-k423/simpleHtmlWatch/releases/latest) 下载 `windows_amd64.zip`（普通 Intel / AMD Windows 电脑）；Windows ARM 设备选择 `windows_arm64.zip`。
 2. 解压，双击 `simpleHtmlWatch.exe`，浏览器自动打开本机页面。**保留程序的控制台窗口，关闭它会停止采集。**
 3. 点「管理机器」，新增共享凭据，例如 `实验室 root`，填写用户名 `root`；可填写密码，也可使用本机 SSH key。需要指定私钥时填写本机绝对路径或 `~/.ssh/id_ed25519`，加密私钥另填私钥口令。

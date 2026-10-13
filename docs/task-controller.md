@@ -142,3 +142,7 @@ v0.5.0-rc.4 根据 issue #7 调整为全宽的机器 / 任务泳道和连续时�
 预留作用于本实例 `/api/tasks` 调度入口。人工 SSH、即时批量命令 `/api/executions`、自定义监控命令、其他独立中台不会自动遵守这些预留；它们必须避开被预留的实验资源。`ready` 仍不证明 NPU 空闲。AIConnector 首版仅对固定机器入口开启并行。
 
 浏览器回归（开发环境）：`npm ci`、`npx playwright install chromium firefox webkit`、`npm run test:browser`。它启动仅监听本机的 Go 测试夹具，使用合成任务和模拟 SSH，覆盖三种浏览器内核的下载、时间缩放、机器完整性和确认解除流程。
+
+## 四机以上排队时的失败残留清理
+
+实例支持 `queue-residue-cleanup-v1` 且维护者按已有授权启用后，至少四机的 continuation 等待单资源不足会触发保守的单卡诊断。debug 和 unknown 继续等待，只有明确失败残留并观测五分钟无进展才定点 SIGTERM。已有中台任务、unknown 和预留继续受保护，普通单机 submit 不触发。查询与日志使用 `taskctl.py cleanup-status [--id 日志ID]`。完整启用方式、分类边界、身份校验和持久化要求见 [常驻清理说明](experiment-continuations.md#常驻失败残留清理)。

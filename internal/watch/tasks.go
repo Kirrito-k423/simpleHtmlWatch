@@ -111,6 +111,7 @@ type TaskLogs struct {
 }
 
 type TaskManager struct {
+	cleanup              cleanupState
 	continuations        map[string]Continuation
 	stability            map[string]map[string]resourceStability
 	now                  func() time.Time
@@ -142,6 +143,10 @@ func newTaskManager(store *Store, monitor *Monitor, remote taskRemote) (*TaskMan
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m := &TaskManager{dir: dir, jobs: map[string]*TaskJob{}, collecting: map[string]bool{}, store: store, monitor: monitor, remote: remote, ctx: ctx, cancel: cancel, poll: 5 * time.Second, now: time.Now}
+	if err := m.loadCleanup(); err != nil {
+		cancel()
+		return nil, err
+	}
 	if err := m.loadReservations(); err != nil {
 		cancel()
 		return nil, err
@@ -260,6 +265,14 @@ func (m *TaskManager) readyForReservationLocked(c Config, states map[string]Stat
 	busyAddress := map[string]bool{}
 	busyHosts := map[string]bool{}
 	busyResources := map[string]bool{}
+	for key := range m.cleanup.Busy {
+		busyResources[key] = true
+		for _, h := range c.Machines {
+			if machineResource(h) == key {
+				busyHosts[strings.ToLower(strings.TrimSpace(h.Host))] = true
+			}
+		}
+	}
 	for _, continuation := range m.continuations {
 		if !continuationOccupied(continuation) || continuation.GrantID == owner {
 			continue

@@ -29,6 +29,31 @@ func (s *Server) tasksAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch r.URL.Path {
+	case "/api/tasks/cleanup":
+		if r.Method == "POST" {
+			if id != "" {
+				fail(w, 400, "策略写入不接受日志 ID")
+				return
+			}
+			var policy CleanupPolicy
+			if err := decode(w, r, &policy); err != nil {
+				fail(w, 400, err.Error())
+				return
+			}
+			if err := s.tasks.SetCleanupPolicy(policy); err != nil {
+				fail(w, 400, err.Error())
+				return
+			}
+		} else if r.Method != "GET" {
+			w.WriteHeader(405)
+			return
+		}
+		status, err := s.tasks.CleanupStatus(id)
+		if err != nil {
+			fail(w, 404, err.Error())
+			return
+		}
+		jsonResponse(w, 200, status)
 	case "/api/tasks/machines":
 		if r.Method != "GET" {
 			w.WriteHeader(405)

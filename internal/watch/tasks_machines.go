@@ -82,6 +82,8 @@ func (m *TaskManager) Machines() []TaskMachine {
 			item.Reason = "实验等待单暂留或持有"
 		case state.Status != "online" && state.Status != "partial":
 			item.Reason = "监控未在线"
+		case m.cleanup.Busy[item.ResourceKey]:
+			item.Reason = "残留进程诊断或清理中"
 		case !item.Ready:
 			item.Reason = "监控状态已过期"
 		default:

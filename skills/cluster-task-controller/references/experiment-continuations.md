@@ -169,3 +169,28 @@ python3 skills/cluster-task-controller/scripts/taskctl.py continuation-control e
 Go race/vet、Python unittest 和浏览器回归使用模拟 NPU、模拟 SSH、临时存储、假宿主与本地 WebSocket，验证分配竞争、过期、重启、响应丢失和固定 ID 去重。
 
 真实 socket 只读握手/原 ID 读取与假宿主主动发送分别记录。真实原对话主动接续、宿主心跳及 A2/A3 空闲识别/实验正确性应在选定试点验收，不能以 fixture、编译或读历史代替。
+
+## 常驻失败残留清理
+
+支持能力 `queue-residue-cleanup-v1` 的构建提供实例级策略，初始关闭。维护者根据用户已有授权启用一次后，策略保存在 `tasks/.cleanup/policy.json`，服务重启后继续生效，不要求每个等待单重复授权。
+
+```sh
+python3 scripts/taskctl.py --instance 实例名 cleanup-status
+python3 scripts/taskctl.py --instance 实例名 cleanup-policy --enable --authorization-ref /absolute/path/to/user-authorization.txt
+python3 scripts/taskctl.py --instance 实例名 cleanup-status --id residue-实际日志ID
+python3 scripts/taskctl.py --instance 实例名 cleanup-policy --disable
+```
+
+只在已授权、未暂停、未到期的 `waiting_resources` 等待单需要至少 4 台机器且当前合格空闲机器不足时触发。诊断限定于原 group/machineIds、型号、标签、设备总数和 HBM 合同范围；不清理被本中台 task、unknown、reservation、暂留或 Grant 持有的机器，也不替旧的未知任务解除占用。普通单机 `/api/tasks` 和只申请资源的整组 reservation 没有排队等待单，不触发本规则。
+
+候选必须有完整、新鲜、成功退出的 NPU 原始采样，整机仅一个 NPU 进程行、逐设备利用率均为 0。诊断进一步检查程序年龄超过 300 秒、进程和父进程身份、日志、CPU 与调试证据。当前自动分类器明确支持 Python multiprocessing forkserver 原监督进程退出、仅剩一个 worker 的失败残留；其他结构没有足够事实时记为 unknown，继续等待。不能因为未发现调试器就推断可以终止。
+
+调试器附着、停止状态、调试命令、交互输入、`SHW_DEBUG_PROTECT=1`、非零 `PYTHONBREAKPOINT` 或进程工作目录的 `.shw-debug-protect` 文件均会保护进程。Python 内部断点无法仅靠命令行完全排除，因此清理还要求明确失败日志、原监督进程已退出、无活跃同父 worker/子进程，以及连续至少五分钟的日志和 CPU 无进展证据。每台最多约每 60 秒诊断一次；观测断档超过 150 秒、进程身份、日志或 CPU 进展变化会重新计时，服务重启也重新计时。判定允许五分钟内不足 1 秒的累计 CPU housekeeping，不把微量驱动线程活动误认成计算进展。
+
+终止前重新核对等待状态、范围、机器配置、进程、父进程、调试保护、日志和全部设备当前状态；诊断/清理期间阻止本实例分配同一物理资源。清理意图先持久化，再通过 Linux pidfd 仅发送 SIGTERM，不发送 SIGKILL、不按名称匹配批量终止。缺少 Python 3.9+ 的 pidfd 支持或 Linux 相应能力时保守失败。暂停/取消和终止决策使用同一锁串行化；已开始的终止操作不因后续暂停撤回。
+
+本机 `tasks/.cleanup/residue-*.json` 保留初始/最近诊断、日志末尾、判定原因、终止意图、回执和后续进程核查；远端 `$HOME/.simplehtmlwatch/cleanup/` 保存发送前的证据与意图。传输不确定、回执丢失或服务重启后，只查询原 boot ID/PID/启动身份，不重放信号。确认原进程退出后，由原等待单重新核对整组资源；进程退出不代表 NPU 已空闲、实验已启动或实验成功。
+
+日志权限为当前用户可读写，敏感字段做基本脱敏，不保存环境变量全集或 SSH 凭据。日志末尾是片段，不是完整日志或内存转储。本机日志上限 20 MiB，不自动删除清理证据；满额或持久化失败时停止终止操作并报告，维护者归档日志后处理容量。完整单条日志通过 `cleanup-status --id` 读取，摘要最多列出最近 200 条。
+
+HTTP：`GET /api/tasks/cleanup` 查询策略、摘要和错误；`GET /api/tasks/cleanup?id=...` 读取完整记录；`POST /api/tasks/cleanup` 提交 `{ "enabled": true, "authorizationRef": "已有用户授权记录" }`。保留本机会话令牌、Origin/Host 和 runId 校验。能力缺失时客户端报错，不自动升级或重启中台。

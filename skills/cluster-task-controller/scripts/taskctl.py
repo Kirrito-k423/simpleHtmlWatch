@@ -365,6 +365,13 @@ def main():
     parser.add_argument("--allow-legacy", action="store_true", help="仅显式 URL：允许没有身份接口的历史版本，不具备身份校验")
     sub = parser.add_subparsers(dest="action", required=True)
     continuation_actions(sub)
+    cleanup_status = sub.add_parser("cleanup-status", help="只读查看常驻清理策略及诊断摘要")
+    cleanup_status.add_argument("--id", help="读取一条完整诊断和清理日志")
+    cleanup_policy = sub.add_parser("cleanup-policy", help="设置已授权的常驻失败残留清理策略")
+    cleanup_switch = cleanup_policy.add_mutually_exclusive_group(required=True)
+    cleanup_switch.add_argument("--enable", action="store_true")
+    cleanup_switch.add_argument("--disable", action="store_true")
+    cleanup_policy.add_argument("--authorization-ref", default="")
     sub.add_parser("discover", help="只读发现并校验实例、版本、能力和当前地址")
     ready = sub.add_parser("ready", help="列出可调度机器")
     ready.add_argument("--group")
@@ -390,6 +397,18 @@ def main():
     client = Client(args)
     if args.action == "await-resources" or args.action.startswith("continuation-"):
         return run_continuation_action(client, args)
+    if args.action in ("cleanup-status", "cleanup-policy"):
+        if args.allow_legacy:
+            raise ValueError("清理策略不允许 legacy 模式")
+        client.capabilities.add("queue-residue-cleanup-v1")
+        if args.action == "cleanup-policy":
+            if args.enable and not args.authorization_ref.strip():
+                raise ValueError("启用清理策略需提供已有用户授权的记录 --authorization-ref")
+            show(client.api("/cleanup", "POST", {"enabled": args.enable, "authorizationRef": args.authorization_ref}))
+        else:
+            query = "?" + urllib.parse.urlencode({"id": args.id}) if args.id else ""
+            show(client.api("/cleanup" + query))
+        return 0
     if args.action == "discover":
         show(client.discover())
         return 0

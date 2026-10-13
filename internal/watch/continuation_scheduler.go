@@ -40,8 +40,21 @@ func (m *TaskManager) startContinuations() {
 		return
 	}
 	m.continuationStarted = true
-	m.wg.Add(1)
+	m.wg.Add(2)
 	m.mu.Unlock()
+	go func() {
+		defer m.wg.Done()
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-m.ctx.Done():
+				return
+			case <-ticker.C:
+				_ = m.CheckCleanup()
+			}
+		}
+	}()
 	go func() {
 		defer m.wg.Done()
 		ticker := time.NewTicker(time.Second)

@@ -71,6 +71,12 @@ tar -tzf /absolute/path/result.tar.gz
 
 ## 异常判断
 
+### 常驻单卡失败残留诊断
+
+`queue-residue-cleanup-v1` 是实例级可选策略，维护者有用户授权后启用一次，重启保留。`cleanup-status` 只读查看策略和日志摘要，`cleanup-status --id <日志ID>` 读取完整证据。`cleanup-policy --enable --authorization-ref <已有用户授权记录>` 启用，`cleanup-policy --disable` 停用；未获清理授权时不要擅自启用。用户已经授权当前实例启用时无需重复确认。
+
+启用后，至少四台机器的有效 `waiting_resources` 等待单资源不足时，中台自动在原范围诊断单卡、零利用率占用。debug、交互、归属/状态不明继续等待；只有明确失败的孤立 multiprocessing worker，且已观察五分钟无进展，才定点 SIGTERM。诊断和意图持久化；回执不确定只查原身份，不重放信号。已被中台任务或预留持有的机器不清理；原 unknown 任务不自动解除。细节、保护标记和日志容量见 [等待说明](references/experiment-continuations.md#常驻失败残留清理)。
+
 ### 资源不足时保留原实验并恢复
 
 用户要求实验自动等待并继续时，发现 `experiment-continuations-v1` 后按 [离线运行说明](references/experiment-continuations.md) 保存检查点、准确原对话 ID、授权、资源合同和固定计划。缺少能力交由维护者处理，不自动升级。一次回复可以结束，实验应登记 waiting_resources，不能因资源不足丢弃实验。

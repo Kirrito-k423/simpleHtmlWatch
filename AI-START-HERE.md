@@ -33,6 +33,12 @@ Skill 的客户端脚本是 `skills/cluster-task-controller/scripts/taskctl.py`�
 
 AI 使用已更新的 `simplehtmlwatch-netdata` Skill，先 discover 核对 `accelerator-utilization-v1`，再执行 `metricsctl.py --instance <实例名> utilization --period yesterday` 或 `--period week --group <机器组>`。退出码 3 代表历史不全，不是服务宕机。时间按北京时间，缺失不补零；低谷不证明当前资源允许部署。详细口径见 [利用率说明](docs/utilization.md)。
 
+## 常驻排队清理
+
+具备 `queue-residue-cleanup-v1` 时，维护者可按已有用户授权启用 `taskctl.py cleanup-policy --enable --authorization-ref <授权记录>`，策略重启后保留。至少四台机器的有效等待单资源不足时，诊断原资源范围内的单卡零利用率占用；确认失败残留和五分钟无进展后才通过 pidfd 定点 SIGTERM。debug 和无法判断的继续等待，已有任务/unknown/预留继续受保护。
+
+`cleanup-status` 查看启停、错误及日志摘要，`cleanup-status --id <日志ID>` 查看证据；`cleanup-policy --disable` 停用。诊断日志、终止意图和回执持久化，丢失回执不重发信号。详见 [规则与边界](docs/experiment-continuations.md#常驻失败残留清理)。此处需要远端 Linux/Python/pidfd 能力，测试夹具通过不等于真实硬件上的自动清理验收。
+
 ## 多 AI 与版本升级
 
 AIConnector 八机任务需要 `atomic-group-reservations-v1`，同实例一次分配完整物理组。控制机绑定固定命令 SHA、任务 ID、Grant 与代数；原启动意图不重放。参见 [整组预留](docs/atomic-group-reservations.md)。本机 API 验收不代表真实 64-rank 实验已通过。

@@ -172,6 +172,9 @@ func (u *Utilization) bucket(at time.Time, p utilizationPending) *utilizationBuc
 	return &day.Hours[p.key][len(day.Hours[p.key])-1]
 }
 func (u *Utilization) advance(p utilizationPending, end time.Time) utilizationPending {
+	// Buckets and query windows use wall-clock calendar hours. Mixed monotonic
+	// and wall durations can exceed an hour after a local clock correction.
+	p.at, p.cursor, end = p.at.Round(0), p.cursor.Round(0), end.Round(0)
 	if cap := p.at.Add(p.hold); end.After(cap) {
 		end = cap
 	}
@@ -229,6 +232,7 @@ func (u *Utilization) Observe(machine Machine, state State, interval time.Durati
 	if at.IsZero() {
 		return
 	}
+	at = at.Round(0)
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	if at.After(u.now().Add(time.Second)) {
@@ -251,7 +255,11 @@ func (u *Utilization) Observe(machine Machine, state State, interval time.Durati
 	if exists && old.key == key {
 		u.advance(old, at)
 	}
-	p := utilizationPending{key: key, machine: meta, at: at, cursor: at, hold: 2*interval + 30*time.Second, basis: reading.basis}
+	cursor := at
+	if exists && old.key == key && old.cursor.After(cursor) {
+		cursor = old.cursor // Never count a previously integrated interval twice.
+	}
+	p := utilizationPending{key: key, machine: meta, at: at, cursor: cursor, hold: 2*interval + 30*time.Second, basis: reading.basis}
 	u.pending[machine.ID] = p
 	b := u.bucket(at, p)
 	b[5]++

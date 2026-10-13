@@ -222,3 +222,49 @@ func TestUtilizationLowWindowsCoverageAndAPI(t *testing.T) {
 		t.Fatal("write accepted")
 	}
 }
+
+func TestUtilizationDoesNotRewindIntegratedCursor(t *testing.T) {
+	now := time.Date(2026, 10, 13, 12, 0, 0, 0, chinaTime)
+	u, err := newUtilization(t.TempDir(), func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine := testConfig().Machines[0]
+	observeUtilization(u, machine, now, "0")
+	origin := now
+	u.mu.Lock()
+	u.advanceAll(origin.Add(40 * time.Second))
+	u.mu.Unlock()
+	now = origin.Add(40 * time.Second)
+	observeUtilization(u, machine, origin.Add(30*time.Second), "50")
+	now = origin.Add(60 * time.Second)
+	u.mu.Lock()
+	u.advanceAll(now)
+	u.mu.Unlock()
+	for _, day := range u.days {
+		for _, rows := range day.Hours {
+			if rows[0][1] != 60000 {
+				t.Fatalf("overlapping duration counted twice: %d", rows[0][1])
+			}
+		}
+	}
+	if err = u.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = newUtilization(u.dir+"/..", func() time.Time { return now }); err != nil {
+		t.Fatal(err)
+	}
+}
+func TestUtilizationCalendarIntervalsStripMonotonicClock(t *testing.T) {
+	now := time.Now()
+	u, err := newUtilization(t.TempDir(), func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	observeUtilization(u, testConfig().Machines[0], now, "0")
+	for _, p := range u.pending {
+		if p.at != p.at.Round(0) || p.cursor != p.cursor.Round(0) {
+			t.Fatal("calendar aggregation retains monotonic readings")
+		}
+	}
+}

@@ -57,7 +57,7 @@ def snapshot(pid):
             s=os.fstat(f.fileno())
             if not stat.S_ISREG(s.st_mode):continue
             f.seek(max(0,s.st_size-8192));tail=f.read(8192)
-            out['logs'].append(dict(fd=name,size=s.st_size,mtimeNS=s.st_mtime_ns,device=s.st_dev,inode=s.st_ino,hash=hashlib.sha256(tail).hexdigest(),tail=redacted(tail.decode(errors='replace'))))
+            out['logs'].append(dict(fd=name,size=s.st_size,mtimeNS=s.st_mtime_ns,device=s.st_dev,inode=s.st_ino,hash=hashlib.sha256(tail).hexdigest(),tail=redacted(tail[-4096:].decode(errors='replace'))))
     out['failure']=any(re.search(r'(\[ERROR\]\s*Task failed!|HCCL function error:|torch\.distributed\.DistNetworkError:|ConnectionRefusedError: \[Errno 111\])',l['tail']) for l in out['logs'])
     # The start identity must still match after reading every piece of evidence.
     end=identity(pid);end_parent=identity(out['parentPid'])

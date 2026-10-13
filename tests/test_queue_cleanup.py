@@ -106,6 +106,12 @@ class InspectionTests(unittest.TestCase):
     def test_unattended_orphan_failure_and_thread_debugger(self):
         s=helper.snapshot(42);self.assertTrue(s['orphanForkserver']);self.assertTrue(s['failure']);self.assertFalse(s['debug']);self.assertFalse(s['interactive'])
         (self.proc/'42/task/42/status').write_text('TracerPid:\t999\n');self.assertTrue(helper.snapshot(42)['debug'])
+    def test_failure_marker_at_actual_end_of_large_log(self):
+        self.log.write_text('ordinary progress line\n'*1000+'[ERROR] Task failed!')
+        s=helper.snapshot(42)
+        self.assertTrue(s['failure'])
+        self.assertTrue(s['logs'][0]['tail'].endswith('[ERROR] Task failed!'))
+        self.assertLessEqual(len(s['logs'][0]['tail']),4096)
     def test_protection_marker_and_environment(self):
         (self.cwd/'.shw-debug-protect').touch();self.assertTrue(helper.snapshot(42)['debug'])
         (self.cwd/'.shw-debug-protect').unlink();(self.proc/'42/environ').write_bytes(b'SHW_DEBUG_PROTECT=1\0');self.assertTrue(helper.snapshot(42)['debug'])

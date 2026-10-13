@@ -35,6 +35,7 @@ python3 "$TASKCTL" ready
 - **AI 任务客户端只负责连接和提交任务。禁止因某个端口不可达、HTTP 404、能力缺失或版本不符，自动启动、停止、重启、替换或降级中台。禁止 `pkill -f simpleHtmlWatch`、按端口杀进程、删除 `app.lock` / `service.json` 来抢占。** 不可达不证明进程死亡；登记文件和 PID 也不证明存活。
 - 只读诊断：`python3 "$TASKCTL" discover` 或 `simpleHtmlWatch -status`。若登记缺失、身份不一致或旧版占锁，保留现场，向服务维护者报告；不要扫描端口挑一个看起来能用的服务。
 - 启停和版本切换由一个明确的维护者负责。新版对同一目录重复启动会复用在线实例；停止后默认复用端口和固定构建。维护者计划切换构建时才使用 `-adopt-build`；端口迁移需显式 `-port`。不同版本试用必须使用独立实例/数据目录，不能共用任务记录。
+- Windows 包中的 `upgrade.bat` 是维护者明确采用新构建的入口，等价于 `-adopt-build`。仅在已有升级授权、核对并正常关闭准确旧实例后使用，沿用原实例和数据目录参数；不能把它作为探测失败时的自动恢复。
 - 历史版本没有身份接口。确需访问时核对启动窗口的精确 URL，再显式 `--url ... --allow-legacy`；此模式不提供身份/版本保证，仍禁止自动重启。历史二进制不理解新版构建固定规则，必须由维护者管理其启动入口。
 - 系统指标的可选能力为 `netdata-metrics-v1`，只读 API `/api/metrics` 见发布包 `docs/netdata.md`；先发现并核对实例、按原协议携带会话令牌与 runId。系统曲线不证明 NPU 空闲，也不改变 ready 或预留语义。
 - 任务操作默认要求 `tasks` 能力；需要预留接口时另加 `--require-capability reservations`。不同实例的资源预留互不协调，不要把测试实例连到生产实例正在占用的同一资源。
@@ -73,7 +74,7 @@ tar -tzf /absolute/path/result.tar.gz
 
 ### 常驻单卡失败残留诊断
 
-`queue-residue-cleanup-v1` 是实例级可选策略，维护者有用户授权后启用一次，重启保留。`cleanup-status` 只读查看策略和日志摘要，`cleanup-status --id <日志ID>` 读取完整证据。`cleanup-policy --enable --authorization-ref <已有用户授权记录>` 启用，`cleanup-policy --disable` 停用；未获清理授权时不要擅自启用。用户已经授权当前实例启用时无需重复确认。
+`queue-residue-cleanup-v1` 是实例级可选策略，维护者有用户授权后启用一次，重启保留。 用户可直接在「任务中台」页面点击开关，页面自动记录这次明确授权，无需 Python；同页可查看和下载诊断、清理证据。AI 仍按已有授权使用下面的客户端命令。`cleanup-status` 只读查看策略和日志摘要，`cleanup-status --id <日志ID>` 读取完整证据。`cleanup-policy --enable --authorization-ref <已有用户授权记录>` 启用，`cleanup-policy --disable` 停用；未获清理授权时不要擅自启用。用户已经授权当前实例启用时无需重复确认。
 
 启用后，至少四台机器的有效 `waiting_resources` 等待单资源不足时，中台自动在原范围诊断单卡、零利用率占用。debug、交互、归属/状态不明继续等待；只有明确失败的孤立 multiprocessing worker，且已观察五分钟无进展，才定点 SIGTERM。诊断和意图持久化；回执不确定只查原身份，不重放信号。已被中台任务或预留持有的机器不清理；原 unknown 任务不自动解除。细节、保护标记和日志容量见 [等待说明](references/experiment-continuations.md#常驻失败残留清理)。
 

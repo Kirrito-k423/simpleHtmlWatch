@@ -56,6 +56,8 @@ python3 skills/cluster-task-controller/scripts/taskctl.py --instance canary read
 
 仍在线时 `-adopt-build` / `-port` 不会抢占，只返回在线实例。显式 `-adopt-build` 也可选择旧构建，因此它是维护动作，使用前必须核查该版本对数据格式的兼容性；程序不会保证任意降级兼容。
 
+Windows 发布包提供 `upgrade.bat`，等价于运行本包程序并显式附加 `-adopt-build`。维护者核对并关闭准确旧实例的启动窗口后，可双击它采用新构建；命名实例、自定义数据目录或其他原启动参数需继续传入。脚本不结束进程、不删除登记或锁，也不改变普通 `start.bat` 的构建固定行为。
+
 客户端每次操作前重新读取同一实例登记，正常情况下可以刷新 URL 与会话令牌。维护窗口内请求可能失败退出；恢复后用相同实例和原任务 ID 查询。任务 API 携带 `X-Watch-Instance: <runId>`：探测与请求之间若进程已更换，请求被拒绝，不会自动重发 POST。进程重启后的任务恢复仍只查询远端状态，不重新启动任务。
 
 需要预留功能可加 `--require-capability reservations`；需固定版本可加 `--expect-version <版本>`。不满足要求表示接口不兼容，不表示服务已宕机。

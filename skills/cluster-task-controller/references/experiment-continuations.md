@@ -174,6 +174,12 @@ Go race/vet、Python unittest 和浏览器回归使用模拟 NPU、模拟 SSH、
 
 支持能力 `queue-residue-cleanup-v1` 的构建提供实例级策略，初始关闭。维护者根据用户已有授权启用一次后，策略保存在 `tasks/.cleanup/policy.json`，服务重启后继续生效，不要求每个等待单重复授权。
 
+Windows、macOS 和 Linux 均可直接在浏览器的「任务中台」顶部操作「常驻排队清理」开关。点击启用即授权当前实例按页面所列规则执行，页面自动保存带唯一操作标识的授权说明，无需安装 Python、手写授权文件或运行命令。看到「已启用」即表示服务端已保存；关闭后保留诊断和清理日志。
+
+展开「诊断与清理日志」，可查看最近 200 条记录的机器、PID、分类、原因与更新时间；点选记录可查看进程日志末尾、诊断经过、终止意图和回执，以及完整 JSON 证据并下载。页面区分调试保护、无法判断、观察中、终止请求返回与后续核查，不将请求成功显示成资源已释放。页面可见时每五秒刷新状态，读写都核对实例身份；写入响应不确定时只重新读取状态，不自动重发。读取失败时保留上次显示并禁用开关，缺少能力时提示维护者升级。
+
+以下命令行方式仍供 AI 或脚本使用：
+
 ```sh
 python3 scripts/taskctl.py --instance 实例名 cleanup-status
 python3 scripts/taskctl.py --instance 实例名 cleanup-policy --enable --authorization-ref /absolute/path/to/user-authorization.txt

@@ -35,7 +35,11 @@ AI 使用已更新的 `simplehtmlwatch-netdata` Skill，先 discover 核对 `acc
 
 ## 常驻排队清理
 
-具备 `queue-residue-cleanup-v1` 时，维护者可按已有用户授权启用 `taskctl.py cleanup-policy --enable --authorization-ref <授权记录>`，策略重启后保留。至少四台机器的有效等待单资源不足时，诊断原资源范围内的单卡零利用率占用；确认失败残留和五分钟无进展后才通过 pidfd 定点 SIGTERM。debug 和无法判断的继续等待，已有任务/unknown/预留继续受保护。
+在浏览器进入「任务中台」，点击顶部「常驻排队清理」开关即可启用，页面自动保存操作授权记录，无需 Python 或命令。展开「诊断与清理日志」可查看判定、进程日志片段、清理回执和完整证据，并下载单条记录。开关以服务端保存结果为准；读写不确定时只查询，不自动重试写入。
+
+Windows 已安装旧版时，由维护者核对实例并关闭对应启动窗口，再双击新包的 `upgrade.bat` 明确采用新构建，保留原数据目录。旧实例仍在线时会复用旧实例，不会抢占；普通 `start.bat` 继续遵循固定构建规则。命名实例或自定义数据目录需在启动入口沿用原 `-instance` / `-data-dir` 参数。
+
+具备 `queue-residue-cleanup-v1` 时，AI 或维护脚本也可按已有用户授权启用 `taskctl.py cleanup-policy --enable --authorization-ref <授权记录>`，策略重启后保留。至少四台机器的有效等待单资源不足时，诊断原资源范围内的单卡零利用率占用；确认失败残留和五分钟无进展后才通过 pidfd 定点 SIGTERM。debug 和无法判断的继续等待，已有任务/unknown/预留继续受保护。
 
 `cleanup-status` 查看启停、错误及日志摘要，`cleanup-status --id <日志ID>` 查看证据；`cleanup-policy --disable` 停用。诊断日志、终止意图和回执持久化，丢失回执不重发信号。详见 [规则与边界](docs/experiment-continuations.md#常驻失败残留清理)。此处需要远端 Linux/Python/pidfd 能力，测试夹具通过不等于真实硬件上的自动清理验收。
 

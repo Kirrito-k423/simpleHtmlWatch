@@ -113,11 +113,17 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(self.requests, [])
 
     def test_utilization_capability_is_independent_of_netdata(self):
-        self.client.required = {"accelerator-utilization-v1"}
-        self.live["capabilities"] = ["accelerator-utilization-v1"]
+        args = argparse.Namespace(url=None, data_dir=self.temp.name, instance="test", service_id=None, expect_version=None, require_capability=[], action="utilization")
+        self.client = service_client.Client(args)
+        self.assertEqual(self.client.required, {"accelerator-utilization-v1", "accelerator-occupancy-v1"})
+        self.live["capabilities"] = ["accelerator-utilization-v1", "accelerator-occupancy-v1"]
         self.registry.write_text(json.dumps(self.live))
         self.client.api("/api/utilization?period=yesterday")
         self.assertEqual(self.requests[-1][0], "/api/utilization?period=yesterday")
+        self.live["capabilities"] = ["accelerator-utilization-v1"]
+        self.registry.write_text(json.dumps(self.live))
+        with self.assertRaisesRegex(RuntimeError, "accelerator-occupancy-v1"):
+            self.client.discover()
         self.live["capabilities"] = ["netdata-metrics-v1"]
         self.registry.write_text(json.dumps(self.live))
         with self.assertRaisesRegex(RuntimeError, "缺少能力"):
@@ -133,7 +139,12 @@ class SummaryTests(unittest.TestCase):
         self.assertEqual(code, 3)
         self.assertIsNone(result["machines"][0]["hours"][0]["mean"])
         self.assertFalse(result["complete"])
-        fake.api.return_value = {"source": "npu-smi", "machines": [{"mean": 0, "coveragePercent": 100}]}
+        fake.api.return_value = {"source": "npu-smi", "machines": [{"mean": 0, "coveragePercent": 100, "occupiedPercent": None, "occupancyCoveragePercent": 0}]}
+        result, code = metricsctl.run(args, fake)
+        self.assertEqual(code, 3)
+        self.assertTrue(result["utilizationComplete"])
+        self.assertFalse(result["occupancyComplete"])
+        fake.api.return_value["machines"][0].update(occupiedPercent=0, occupancyCoveragePercent=100)
         result, code = metricsctl.run(args, fake)
         self.assertEqual(code, 0)
         fake.api.return_value["storageError"] = "disk full"

@@ -27,21 +27,60 @@ type utilizationMachine struct {
 	Metric  string `json:"metric"`
 }
 
-// Hour, covered ms, sum(percent*100*ms), low ms, peak(percent*100), samples.
+// Hour, covered ms, sum(percent*100*ms), low ms, peak(percent*100), samples,
+// process-state covered ms, occupied ms. No device or process identifiers.
 // Fixed arrays avoid repeating field names in every hourly record.
-type utilizationBucket [6]int64
+type utilizationBucket [8]int64
 type utilizationDay struct {
 	Version  int                            `json:"v"`
 	Date     string                         `json:"d"`
 	Machines map[string]utilizationMachine  `json:"m"`
 	Hours    map[string][]utilizationBucket `json:"h"`
 }
+
+// Version 1 has six fields and no occupancy history. Normalize it in memory
+// without backfilling zero occupancy or rewriting untouched historical files.
+func (d *utilizationDay) UnmarshalJSON(raw []byte) error {
+	var disk struct {
+		Version  int                           `json:"v"`
+		Date     string                        `json:"d"`
+		Machines map[string]utilizationMachine `json:"m"`
+		Hours    map[string][][]int64          `json:"h"`
+	}
+	if err := json.Unmarshal(raw, &disk); err != nil {
+		return err
+	}
+	width := 8
+	if disk.Version == 1 {
+		width = 6
+	} else if disk.Version != 2 {
+		return fmt.Errorf("未知利用率日文件版本")
+	}
+	*d = utilizationDay{Version: 2, Date: disk.Date, Machines: disk.Machines}
+	if disk.Hours != nil {
+		d.Hours = map[string][]utilizationBucket{}
+	}
+	for key, rows := range disk.Hours {
+		for _, row := range rows {
+			if len(row) != width {
+				return fmt.Errorf("利用率小时桶字段数无效")
+			}
+			var b utilizationBucket
+			copy(b[:], row)
+			d.Hours[key] = append(d.Hours[key], b)
+		}
+	}
+	return nil
+}
+
 type utilizationPending struct {
-	key        string
-	machine    utilizationMachine
-	at, cursor time.Time
-	hold       time.Duration
-	basis      int64
+	key            string
+	machine        utilizationMachine
+	at, cursor     time.Time
+	hold           time.Duration
+	basis          int64
+	occupancyKnown bool
+	occupied       bool
 }
 type Utilization struct {
 	mu        sync.Mutex
@@ -109,7 +148,7 @@ func newUtilization(dir string, now func() time.Time) (*Utilization, error) {
 
 func validateUtilizationDay(day utilizationDay, filename string) error {
 	date, err := time.ParseInLocation("2006-01-02", day.Date, chinaTime)
-	if err != nil || date.Format("2006-01-02")+".json" != filename || day.Version != 1 || day.Machines == nil || day.Hours == nil {
+	if err != nil || date.Format("2006-01-02")+".json" != filename || day.Version != 2 || day.Machines == nil || day.Hours == nil {
 		return fmt.Errorf("利用率日文件格式无效：%s", filename)
 	}
 	for key, rows := range day.Hours {
@@ -119,7 +158,7 @@ func validateUtilizationDay(day utilizationDay, filename string) error {
 		}
 		seen := map[int64]bool{}
 		for _, b := range rows {
-			if b[0] < 0 || b[0] > 23 || seen[b[0]] || b[1] < 0 || b[1] > 3600000 || b[2] < 0 || b[2] > b[1]*10000 || b[3] < 0 || b[3] > b[1] || b[4] < 0 || b[4] > 10000 || b[5] < 0 {
+			if b[0] < 0 || b[0] > 23 || seen[b[0]] || b[1] < 0 || b[1] > 3600000 || b[2] < 0 || b[2] > b[1]*10000 || b[3] < 0 || b[3] > b[1] || b[4] < 0 || b[4] > 10000 || b[5] < 0 || b[6] < 0 || b[6] > b[1] || b[7] < 0 || b[7] > b[6] {
 				return fmt.Errorf("利用率小时桶无效：%s", filename)
 			}
 			seen[b[0]] = true
@@ -158,7 +197,7 @@ func (u *Utilization) bucket(at time.Time, p utilizationPending) *utilizationBuc
 	date := local.Format("2006-01-02")
 	day := u.days[date]
 	if day == nil {
-		day = &utilizationDay{1, date, map[string]utilizationMachine{}, map[string][]utilizationBucket{}}
+		day = &utilizationDay{2, date, map[string]utilizationMachine{}, map[string][]utilizationBucket{}}
 		u.days[date] = day
 	}
 	day.Machines[p.key] = p.machine
@@ -188,6 +227,12 @@ func (u *Utilization) advance(p utilizationPending, end time.Time) utilizationPe
 			b := u.bucket(p.cursor, p)
 			b[1] += ms
 			b[2] += p.basis * ms
+			if p.occupancyKnown {
+				b[6] += ms
+				if p.occupied {
+					b[7] += ms
+				}
+			}
 			if p.basis < 1000 {
 				b[3] += ms
 			}
@@ -259,7 +304,7 @@ func (u *Utilization) Observe(machine Machine, state State, interval time.Durati
 	if exists && old.key == key && old.cursor.After(cursor) {
 		cursor = old.cursor // Never count a previously integrated interval twice.
 	}
-	p := utilizationPending{key: key, machine: meta, at: at, cursor: cursor, hold: 2*interval + 30*time.Second, basis: reading.basis}
+	p := utilizationPending{key: key, machine: meta, at: at, cursor: cursor, hold: 2*interval + 30*time.Second, basis: reading.basis, occupancyKnown: reading.occupancyKnown, occupied: reading.occupied}
 	u.pending[machine.ID] = p
 	b := u.bucket(at, p)
 	b[5]++

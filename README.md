@@ -96,7 +96,7 @@ pkill -f -- '[t]ilexr'
 
 ### 机器级 NPU 利用率历史
 
-“NPU 利用率”提供昨天／近 7 个完整自然日的机器 × 小时热力表，以及均值、峰值、低于 10% 的时长占比和数据覆盖率。复用原有 NPU 采样，不增加 SSH 命令、不依赖 Netdata 或文本历史。只保存机器级小时桶：保留最近 30 个自然日，独立上限 20 MiB；60 台 × 30 天的合成格式测试约 2.06 MiB。AI 使用 `metricsctl.py utilization` 查询，需 `accelerator-utilization-v1`。未采集的历史不补回，缺失不补零；低谷不等于当前资源可部署。口径与接口见 [利用率说明](docs/utilization.md)。
+“NPU 利用率”按机器 × 小时并列显示平均算力利用率和整机占用时长比例：任意卡有 NPU 进程就计整机占用，包括算力为零的进程。提供昨天／近 7 个完整自然日、峰值、低负载占比及两项各自覆盖率。复用原有采样，不增加 SSH 命令、不依赖 Netdata 或文本历史。只保存机器级小时桶：保留最近 30 个自然日，独立上限 20 MiB；60 台 × 30 天含占用的合成格式测试约 2.71 MiB。AI 使用 `metricsctl.py utilization` 查询，新版需 `accelerator-utilization-v1` 和 `accelerator-occupancy-v1`。保留旧算力历史，升级前占用及未知进程状态不补空闲；低谷不等于当前资源可部署。口径与接口见 [利用率说明](docs/utilization.md)。
 
 ## 历史记录与回放（方案 C）
 

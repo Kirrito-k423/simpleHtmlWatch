@@ -116,12 +116,12 @@ func TestUtilizationCompactThirtyDaysAndQuota(t *testing.T) {
 	u, _ := newUtilization(dir, func() time.Time { return now })
 	for day := 0; day < 30; day++ {
 		date := now.AddDate(0, 0, -day).Format("2006-01-02")
-		d := &utilizationDay{1, date, map[string]utilizationMachine{}, map[string][]utilizationBucket{}}
+		d := &utilizationDay{2, date, map[string]utilizationMachine{}, map[string][]utilizationBucket{}}
 		for machine := 0; machine < 60; machine++ {
 			key := fmt.Sprintf("%024d", machine)
 			d.Machines[key] = utilizationMachine{fmt.Sprintf("machine-%02d", machine), "机器", "A5", "192.0.2.1:22", "Ascend950DT", "NPU Util(%)"}
 			for hour := 0; hour < 24; hour++ {
-				d.Hours[key] = append(d.Hours[key], utilizationBucket{int64(hour), 3600000, 18000000000, 1800000, 10000, 360})
+				d.Hours[key] = append(d.Hours[key], utilizationBucket{int64(hour), 3600000, 18000000000, 1800000, 10000, 360, 3600000, 1800000})
 			}
 		}
 		u.days[date], u.dirty[date] = d, true
@@ -211,6 +211,12 @@ func TestUtilizationLowWindowsCoverageAndAPI(t *testing.T) {
 			}
 			if result.TimeZone != "Asia/Shanghai" {
 				t.Fatal("wrong timezone")
+			}
+			if result.OccupancySource == "" {
+				t.Fatal("missing occupancy source")
+			}
+			if test.query == "period=yesterday" {
+				closeEnough(t, result.Machines[0].Hours[0].OccupiedPercent, 100)
 			}
 		}
 	}

@@ -106,10 +106,15 @@ def run(args, client):
         if not isinstance(output.get("machines"), list) or output.get("source") != "npu-smi":
             raise ValueError("利用率汇总响应无效")
         # Coverage is a separate measurement; absent history is never a zero.
-        output["complete"] = bool(output["machines"]) and not output.get("storageError") and all(
+        output["utilizationComplete"] = bool(output["machines"]) and not output.get("storageError") and all(
             row.get("mean") is not None and row.get("coveragePercent", 0) >= 90
             for row in output["machines"]
         )
+        output["occupancyComplete"] = bool(output["machines"]) and not output.get("storageError") and all(
+            row.get("occupiedPercent") is not None and row.get("occupancyCoveragePercent", 0) >= 90
+            for row in output["machines"]
+        )
+        output["complete"] = output["utilizationComplete"] and output["occupancyComplete"]
         return output, 0 if output["complete"] else 3
     if args.action == "query":
         raw = client.api(query_path(args.machine, args.task, args.after, args.before))

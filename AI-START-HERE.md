@@ -31,7 +31,7 @@ Skill 的客户端脚本是 `skills/cluster-task-controller/scripts/taskctl.py`�
 
 点击“NPU 利用率”查看今天、昨天或近 7 个完整自然日的跨机器小时均值、峰值、低负载占比和覆盖率。复用已有 NPU 采样，不需要 Netdata 或开启文本历史；只保存机器级小时桶，最多 20 MiB，保留最近 30 个自然日。未采集的过去无法补回。
 
-AI 使用已更新的 `simplehtmlwatch-netdata` Skill，先 discover 核对 `accelerator-utilization-v1`，再执行 `metricsctl.py --instance <实例名> utilization --period yesterday` 或 `--period week --group <机器组>`。退出码 3 代表历史不全，不是服务宕机。时间按北京时间，缺失不补零；低谷不证明当前资源允许部署。详细口径见 [利用率说明](docs/utilization.md)。
+AI 使用已更新的 `simplehtmlwatch-netdata` Skill，先 discover 核对 `accelerator-utilization-v1` 和 `accelerator-occupancy-v1`，再执行 `metricsctl.py --instance <实例名> utilization --period yesterday` 或 `--period week --group <机器组>`。并列报告平均算力、整机占用时长比例及各自覆盖率；任意卡有 NPU 进程就计占用，跨机器／跨日按对应观测时长加权。退出码 3 代表任意一项历史不全，不是服务宕机。时间按北京时间，旧占用历史和未知状态不补零；低谷不证明当前资源允许部署。详细口径见 [利用率说明](docs/utilization.md)。
 
 ## 常驻排队清理
 

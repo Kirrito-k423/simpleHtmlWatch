@@ -8,32 +8,38 @@ import (
 )
 
 type UtilizationHour struct {
-	At              int64    `json:"at"`
-	Mean            *float64 `json:"mean"`
-	Peak            *float64 `json:"peak"`
-	LowPercent      *float64 `json:"lowPercent"`
-	CoveragePercent float64  `json:"coveragePercent"`
-	ObservedSeconds float64  `json:"observedSeconds"`
-	Samples         int64    `json:"samples"`
+	At                       int64    `json:"at"`
+	Mean                     *float64 `json:"mean"`
+	Peak                     *float64 `json:"peak"`
+	LowPercent               *float64 `json:"lowPercent"`
+	CoveragePercent          float64  `json:"coveragePercent"`
+	ObservedSeconds          float64  `json:"observedSeconds"`
+	Samples                  int64    `json:"samples"`
+	OccupiedPercent          *float64 `json:"occupiedPercent"`
+	OccupancyCoveragePercent float64  `json:"occupancyCoveragePercent"`
+	OccupancyObservedSeconds float64  `json:"occupancyObservedSeconds"`
 }
 type UtilizationWindow struct {
 	After  int64 `json:"after"`
 	Before int64 `json:"before"`
 }
 type UtilizationRow struct {
-	ID                string              `json:"id"`
-	Name              string              `json:"name"`
-	Group             string              `json:"group"`
-	Model             string              `json:"model"`
-	Metric            string              `json:"metric"`
-	Address           string              `json:"address"`
-	Enabled           bool                `json:"enabled"`
-	CollectionEnabled bool                `json:"collectionEnabled"`
-	Mean              *float64            `json:"mean"`
-	CoveragePercent   float64             `json:"coveragePercent"`
-	Hours             []UtilizationHour   `json:"hours"`
-	HourOfDay         []UtilizationHour   `json:"hourOfDay"`
-	LowWindows        []UtilizationWindow `json:"lowWindows"`
+	ID                       string              `json:"id"`
+	Name                     string              `json:"name"`
+	Group                    string              `json:"group"`
+	Model                    string              `json:"model"`
+	Metric                   string              `json:"metric"`
+	Address                  string              `json:"address"`
+	Enabled                  bool                `json:"enabled"`
+	CollectionEnabled        bool                `json:"collectionEnabled"`
+	Mean                     *float64            `json:"mean"`
+	CoveragePercent          float64             `json:"coveragePercent"`
+	OccupiedPercent          *float64            `json:"occupiedPercent"`
+	OccupancyCoveragePercent float64             `json:"occupancyCoveragePercent"`
+	OccupancyObservedSeconds float64             `json:"occupancyObservedSeconds"`
+	Hours                    []UtilizationHour   `json:"hours"`
+	HourOfDay                []UtilizationHour   `json:"hourOfDay"`
+	LowWindows               []UtilizationWindow `json:"lowWindows"`
 }
 type UtilizationReport struct {
 	Source                 string           `json:"source"`
@@ -47,14 +53,19 @@ type UtilizationReport struct {
 	Bytes                  int64            `json:"bytes"`
 	LimitBytes             int64            `json:"limitBytes"`
 	StorageError           string           `json:"storageError,omitempty"`
+	OccupancySource        string           `json:"occupancySource"`
 	Machines               []UtilizationRow `json:"machines"`
 }
 
 func percent(value float64) *float64 { return &value }
 func utilizationHour(at int64, b utilizationBucket, expectedMS int64) UtilizationHour {
-	h := UtilizationHour{At: at, ObservedSeconds: float64(b[1]) / 1000, Samples: b[5]}
+	h := UtilizationHour{At: at, ObservedSeconds: float64(b[1]) / 1000, Samples: b[5], OccupancyObservedSeconds: float64(b[6]) / 1000}
 	if expectedMS > 0 {
 		h.CoveragePercent = float64(b[1]) * 100 / float64(expectedMS)
+		h.OccupancyCoveragePercent = float64(b[6]) * 100 / float64(expectedMS)
+	}
+	if b[6] > 0 {
+		h.OccupiedPercent = percent(float64(b[7]) * 100 / float64(b[6]))
 	}
 	if b[1] > 0 {
 		h.Mean = percent(float64(b[2]) / float64(b[1]) / 100)
@@ -64,7 +75,7 @@ func utilizationHour(at int64, b utilizationBucket, expectedMS int64) Utilizatio
 	return h
 }
 func addUtilization(a *utilizationBucket, b utilizationBucket) {
-	for _, i := range []int{1, 2, 3, 5} {
+	for _, i := range []int{1, 2, 3, 5, 6, 7} {
 		a[i] += b[i]
 	}
 	if b[4] > a[4] {
@@ -78,6 +89,7 @@ func (u *Utilization) Report(config Config, after, before time.Time, machineID, 
 	defer u.mu.Unlock()
 	now := u.now()
 	report := UtilizationReport{Source: "npu-smi", TimeZone: "Asia/Shanghai", After: after.Unix(), Before: before.Unix(), GeneratedAt: now, LowThresholdPercent: 10, MinimumCoveragePercent: 90, RetentionDays: utilizationRetention, Bytes: u.bytes, LimitBytes: u.limit, StorageError: u.lastError, Machines: []UtilizationRow{}}
+	report.OccupancySource = "npu-smi process table: any device with a process"
 	metadata := map[string]utilizationMachine{}
 	data := map[string]map[int64]utilizationBucket{}
 	dates := make([]string, 0, len(u.days))
@@ -175,6 +187,7 @@ func (u *Utilization) Report(config Config, after, before time.Time, machineID, 
 		}
 		summary := utilizationHour(0, total, expectedTotal)
 		row.Mean, row.CoveragePercent = summary.Mean, summary.CoveragePercent
+		row.OccupiedPercent, row.OccupancyCoveragePercent, row.OccupancyObservedSeconds = summary.OccupiedPercent, summary.OccupancyCoveragePercent, summary.OccupancyObservedSeconds
 		for hour := 0; hour < 24; hour++ {
 			row.HourOfDay = append(row.HourOfDay, utilizationHour(int64(hour), hourSums[hour], expectedHours[hour]))
 		}

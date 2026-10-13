@@ -15,20 +15,22 @@
   }
   function cell(h){
     const style=h.mean==null?'util-missing':h.mean<10?'util-low':h.mean<50?'util-mid':'util-high';
-    const title='均值 '+fmt(h.mean)+'；峰值 '+fmt(h.peak)+'；低于 10% '+fmt(h.lowPercent)+'；覆盖 '+fmt(h.coveragePercent);
-    return '<td class="'+style+(h.mean!=null&&h.coveragePercent<90?' util-partial':'')+'" title="'+escape(title)+'">'+fmt(h.mean)+'</td>';
+    const title='算力均值 '+fmt(h.mean)+'；峰值 '+fmt(h.peak)+'；低于 10% '+fmt(h.lowPercent)+'；算力覆盖 '+fmt(h.coveragePercent)+'；整机占用 '+fmt(h.occupiedPercent)+'；占用覆盖 '+fmt(h.occupancyCoveragePercent);
+    const occupancy=h.occupiedPercent==null?'util-missing':h.occupiedPercent===0?'util-idle':'util-occupied';
+    return '<td title="'+escape(title)+'"><span class="util-value '+style+(h.mean!=null&&h.coveragePercent<90?' util-partial':'')+'">算力 '+fmt(h.mean)+'</span><span class="util-value '+occupancy+(h.occupiedPercent!=null&&h.occupancyCoveragePercent<90?' util-partial':'')+'">占用 '+fmt(h.occupiedPercent)+'</span></td>';
   }
   function detail(index){
     const row=snapshot.machines[index];
-    el('detail').innerHTML='<h3>'+escape(row.name||row.id)+' · '+escape(row.model||'尚无可识别数据')+' · '+escape(row.metric)+'</h3><table><thead><tr><th>北京时间</th><th>整机均值</th><th>整机峰值</th><th>低于 10%</th><th>覆盖率</th><th>采样数</th></tr></thead><tbody>'+row.hours.map(h=>'<tr><td>'+stamp(h.at)+'</td><td>'+fmt(h.mean)+'</td><td>'+fmt(h.peak)+'</td><td>'+fmt(h.lowPercent)+'</td><td>'+fmt(h.coveragePercent)+'</td><td>'+h.samples+'</td></tr>').join('')+'</tbody></table>';
+    el('detail').innerHTML='<h3>'+escape(row.name||row.id)+' · '+escape(row.model||'尚无可识别数据')+' · '+escape(row.metric)+'</h3><table><thead><tr><th>北京时间</th><th>平均算力</th><th>占用时长比例</th><th>算力覆盖率</th><th>占用覆盖率</th><th>整机峰值</th><th>低于 10%</th><th>采样数</th></tr></thead><tbody>'+row.hours.map(h=>'<tr><td>'+stamp(h.at)+'</td><td>'+fmt(h.mean)+'</td><td>'+fmt(h.occupiedPercent)+'</td><td>'+fmt(h.coveragePercent)+'</td><td>'+fmt(h.occupancyCoveragePercent)+'</td><td>'+fmt(h.peak)+'</td><td>'+fmt(h.lowPercent)+'</td><td>'+h.samples+'</td></tr>').join('')+'</tbody></table>';
   }
   function render(){
     if(!snapshot)return;
     el('detail').replaceChildren();
     const rows=snapshot.machines;
-    el('table').innerHTML='<table class="utilization-table"><thead><tr><th>机器 / 小时</th>'+Array.from({length:24},(_,i)=>'<th>'+String(i).padStart(2,'0')+'</th>').join('')+'<th>全窗口均值</th><th>覆盖率</th></tr></thead><tbody>'+rows.map((row,i)=>'<tr><th><button type="button" data-util-machine="'+i+'">'+escape(row.name||row.id)+'</button></th>'+selectedHours(row).map(cell).join('')+'<td class="util-summary">'+fmt(row.mean)+'</td><td>'+fmt(row.coveragePercent)+'</td></tr>').join('')+'</tbody></table>';
+    el('table').innerHTML='<table class="utilization-table"><thead><tr><th>机器 / 小时</th>'+Array.from({length:24},(_,i)=>'<th>'+String(i).padStart(2,'0')+'</th>').join('')+'<th>全窗口汇总</th><th>覆盖率</th></tr></thead><tbody>'+rows.map((row,i)=>'<tr><th><button type="button" data-util-machine="'+i+'">'+escape(row.name||row.id)+'</button></th>'+selectedHours(row).map(cell).join('')+'<td class="util-summary"><span class="util-value">算力 '+fmt(row.mean)+'</span><span class="util-value">占用 '+fmt(row.occupiedPercent)+'</span></td><td><span class="util-value">算力 '+fmt(row.coveragePercent)+'</span><span class="util-value">占用 '+fmt(row.occupancyCoveragePercent)+'</span></td></tr>').join('')+'</tbody></table>';
     const observed=rows.filter(row=>row.mean!=null).length;
-    message(snapshot.storageError?'历史写入异常：'+snapshot.storageError:observed?'已显示 '+observed+' / '+rows.length+' 台的实际汇总；斜纹表示覆盖不足。':'所选范围尚无利用率历史。采集启用前的日期无法补回。',!!snapshot.storageError);
+    const occupiedObserved=rows.filter(row=>row.occupiedPercent!=null).length;
+    message(snapshot.storageError?'历史写入异常：'+snapshot.storageError:observed?'算力历史 '+observed+' / '+rows.length+' 台；占用历史 '+occupiedObserved+' / '+rows.length+' 台。每格上行算力、下行占用；斜纹表示对应指标覆盖不足。':'所选范围尚无利用率历史。采集启用前的日期无法补回。',!!snapshot.storageError);
     el('storage').textContent='保留 '+snapshot.retentionDays+' 天 · 已落盘 '+(snapshot.bytes/1048576).toFixed(3)+' / '+(snapshot.limitBytes/1048576).toFixed(0)+' MiB · 只存机器级小时桶 · 数据更新 '+stamp(Math.floor(Date.parse(snapshot.generatedAt)/1000));
     const windows=rows.flatMap(row=>row.lowWindows.map(w=>'<p>'+escape(row.name||row.id)+'：'+stamp(w.after)+' — '+stamp(w.before)+'</p>'));
     el('windows').innerHTML=windows.length?windows.join(''):'<p>没有覆盖充足的完整低负载小时。候选需每小时覆盖 ≥90%，且已观测时间中 ≥90% 的整机均值低于 10%。</p>';
@@ -71,8 +73,8 @@
   el('export').onclick=()=>{
     if(!snapshot)return;
     const csvCell=value=>'"'+String(value??'').replace(/"/g,'""').replace(/^[=+@-]/,"'$&")+'"';
-    const rows=[['机器ID','机器','分组','型号','指标','北京时间','整机均值(%)','整机峰值(%)','低于10%的时间(%)','覆盖率(%)','采样数']];
-    for(const row of snapshot.machines)for(const h of row.hours)rows.push([row.id,row.name,row.group,row.model,row.metric,stamp(h.at),h.mean,h.peak,h.lowPercent,h.coveragePercent,h.samples]);
+    const rows=[['机器ID','机器','分组','型号','指标','北京时间','平均算力利用率(%)','整机占用时长比例(%)','算力覆盖率(%)','占用覆盖率(%)','占用状态观测秒数','整机峰值(%)','低于10%的时间(%)','采样数']];
+    for(const row of snapshot.machines)for(const h of row.hours)rows.push([row.id,row.name,row.group,row.model,row.metric,stamp(h.at),h.mean,h.occupiedPercent,h.coveragePercent,h.occupancyCoveragePercent,h.occupancyObservedSeconds,h.peak,h.lowPercent,h.samples]);
     const blob=new Blob(['\uFEFF'+rows.map(row=>row.map(csvCell).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'});
     const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download='npu-utilization-'+date(snapshot.after)+'.csv';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
   };

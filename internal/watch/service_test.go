@@ -20,6 +20,9 @@ func TestNetdataDiscoveryCapability(t *testing.T) {
 	if !slices.Contains(lease.Info.Capabilities, "accelerator-utilization-v1") {
 		t.Fatal("utilization API capability missing from service discovery")
 	}
+	if !slices.Contains(lease.Info.Capabilities, "accelerator-occupancy-v1") {
+		t.Fatal("missing occupancy capability")
+	}
 }
 
 func TestLegacyLockOwnerIsNeverTakenOver(t *testing.T) {

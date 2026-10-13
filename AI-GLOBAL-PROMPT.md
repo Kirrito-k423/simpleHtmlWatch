@@ -8,6 +8,6 @@
 
 > 查询整机 CPU、内存、磁盘吞吐和网络流量时，读取 `simplehtmlwatch-netdata` Skill，以同一实例运行 `metricsctl.py discover`、`machines`、`summary`。明确报告未接入与部分失败，保留缺失数据；这些指标和 ready 状态不证明 NPU 空闲。远端部署或凭据修改仅在已有维护授权范围内执行。
 
-> 查询昨天／近一周各机器 NPU 利用率或低负载时段时，使用已更新的 `simplehtmlwatch-netdata` Skill：先 discover 核对 `accelerator-utilization-v1`，再运行 `metricsctl.py --instance <实际实例名> utilization --period yesterday` 或 `--period week --group <机器组>`。按北京时间报告小时均值、峰值、低负载占比和覆盖率；缺失不补零，整机均值不代表每卡空闲。查询退出码 3 时保留有效部分并说明缺失；不要据此重启中台。部署任务前另核对当前 HBM、进程和任务占用。
+> 查询昨天／近一周各机器 NPU 利用率、占用比例或低负载时段时，使用已更新的 `simplehtmlwatch-netdata` Skill：先 discover 核对 `accelerator-utilization-v1` 和 `accelerator-occupancy-v1`，再运行 `metricsctl.py --instance <实际实例名> utilization --period yesterday` 或 `--period week --group <机器组>`。按北京时间并列报告平均算力、整机占用时长比例及各自覆盖率；任意卡有 NPU 进程就计整机占用，按进程状态明确的观测时长加权。旧占用历史、未知及缺失不补空闲，整机均值不代表每卡空闲。查询退出码 3 时保留有效部分并说明缺失；不要据此重启中台。部署任务前另核对当前 HBM、进程和任务占用。
 
 Web 左上角显示运行版本，悬停可查看实例和构建摘要。历史旧版没有发现接口时，由维护者核对实际启动地址；不要因 `discover` 失败而自动重启。详细规则见 [服务实例与版本管理](docs/service-lifecycle.md)。

@@ -9,9 +9,46 @@ import (
 
 // Only the machine mean survives parsing. Device rows never enter the store.
 type machineReading struct {
-	basis  int64 // percent, multiplied by 100
-	model  string
-	metric string
+	basis          int64 // percent, multiplied by 100
+	model          string
+	metric         string
+	occupancyKnown bool
+	occupied       bool
+}
+
+// Read only the process-table PID column. A positive PID on any device means
+// the whole machine is occupied; absent/ambiguous tables never mean idle.
+func parseNPUOccupancy(output string) (occupied, known bool) {
+	pidColumn := -1
+	noProcesses, malformed := false, false
+	for _, line := range strings.Split(output, "\n") {
+		cells := tableCells(line)
+		for i, cell := range cells {
+			if strings.EqualFold(strings.TrimSpace(cell), "Process id") {
+				pidColumn = i
+			}
+		}
+		if pidColumn < 0 || len(cells) == 0 {
+			continue
+		}
+		if len(cells) == 1 && (strings.EqualFold(cells[0], "No running processes found") || strings.EqualFold(cells[0], "No running process found")) {
+			noProcesses = true
+			continue
+		}
+		if pidColumn < len(cells) && strings.EqualFold(cells[pidColumn], "Process id") {
+			continue
+		}
+		if pidColumn >= len(cells) {
+			malformed = true
+			continue
+		}
+		pid, err := strconv.ParseUint(cells[pidColumn], 10, 64)
+		if err == nil && pid > 0 {
+			return true, true
+		}
+		malformed = true
+	}
+	return false, pidColumn >= 0 && noProcesses && !malformed
 }
 
 func tableCells(line string) []string {
@@ -132,5 +169,6 @@ func parseNPUUtilization(output string) (machineReading, error) {
 		return reading, fmt.Errorf("机器包含不同 NPU 型号")
 	}
 	reading.model = names[0]
+	reading.occupied, reading.occupancyKnown = parseNPUOccupancy(output)
 	return reading, nil
 }

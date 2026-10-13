@@ -85,6 +85,7 @@ class Client:
         self.required = set(args.require_capability)
         if args.action == "utilization":
             self.required.add("accelerator-utilization-v1")
+            self.required.add("accelerator-occupancy-v1")
         elif args.action != "discover":
             self.required.add("netdata-metrics-v1")
         self.url = self.run_id = self.token = None

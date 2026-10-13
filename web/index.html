@@ -38,11 +38,11 @@
     <div class="utilization-body">
       <div class="utilization-controls"><label>范围<select id="utilization-period"><option value="today">今天 · 采集中</option><option value="yesterday">昨天 · 24 小时</option><option value="week">近 7 个完整日</option></select></label><label>分组<select id="utilization-group"><option value="">所有分组</option></select></label><label>视图<select id="utilization-day"></select></label><button id="utilization-refresh" type="button">刷新汇总</button><button id="utilization-export" type="button" disabled>导出 CSV</button></div>
       <div id="utilization-message" role="status"></div><p id="utilization-storage"></p>
-      <div class="utilization-legend"><span class="util-low">低于 10%</span><span class="util-mid">10–50%</span><span class="util-high">50% 及以上</span><span>— 缺失</span><span>斜纹：覆盖不足 90%</span></div>
+      <div class="utilization-legend"><span>上行：平均算力</span><span class="util-low">低于 10%</span><span class="util-mid">10–50%</span><span class="util-high">50% 及以上</span><span>下行：占用时长</span><span class="util-idle">无占用</span><span class="util-occupied">有占用</span><span>— 缺失</span><span>斜纹：对应指标覆盖不足 90%</span></div>
       <div id="utilization-table" class="utilization-table-wrap"></div>
       <details class="utilization-windows"><summary>已观测到的低负载时段</summary><div id="utilization-windows"></div></details>
       <section id="utilization-detail"></section>
-      <p class="utilization-note">均值和峰值均为整机各 NPU 利用率的平均值；低负载占比按整机均值低于 10% 的已观测时长计算。采样间隔之间采用有时限的前值估计，断连及缺失不补零。点击机器查看小时明细。历史低负载不能证明当前 HBM、进程或任务占用允许部署。</p>
+      <p class="utilization-note">算力为整机各 NPU 利用率的平均值。任意一张卡有 NPU 进程即视为整机占用；占用比例＝被占用时长／进程状态明确的观测时长，配合占用覆盖率阅读。两项按小时并列展示，点击机器查看明细。采样间采用有时限的前值估计，断连、未知及升级前未采集的占用历史不补零。历史低负载不能证明当前资源允许部署。</p>
     </div>
   </dialog>
   <dialog id="metrics-dialog" class="metrics-dialog" aria-labelledby="metrics-title">

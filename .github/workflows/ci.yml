@@ -36,6 +36,7 @@ jobs:
       - run: node --check web/execution.js
       - run: node --check web/tasks.js
       - run: node --check web/continuations.js
+      - run: node --check web/cleanup.js
       - run: node --check web/task-timeline.js
       - run: node --check web/task-download.js
       - run: node --check web/metric-plots.js

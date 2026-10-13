@@ -24,6 +24,7 @@ for name in ('cluster-task-controller', 'simplehtmlwatch-netdata'):
 PY
   if [[ "$target_os" == windows ]]; then
     cp scripts/start.bat "$folder/start.bat"
+    cp scripts/upgrade.bat "$folder/upgrade.bat"
     (cd dist && zip -qr "${package}.zip" "$package")
   else
     if [[ "$target_os" == darwin ]]; then
@@ -33,7 +34,7 @@ PY
       cp scripts/start.sh "$folder/start.sh"
       chmod +x "$folder/start.sh"
     fi
-    tar -czf "dist/${package}.tar.gz" -C dist "$package"
+    COPYFILE_DISABLE=1 tar -czf "dist/${package}.tar.gz" -C dist "$package"
   fi
 done
 (cd skills && zip -qr "../dist/cluster-task-controller_${version}.zip" cluster-task-controller -x '*/__pycache__/*' '*.pyc')

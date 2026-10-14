@@ -238,8 +238,7 @@ func (m *TaskManager) continuationCandidatesLocked(c Continuation, config Config
 	}
 	stable := m.stability[c.ID]
 	out := []ContinuationAllocation{}
-	seen := map[string]bool{}
-	seenHosts := map[string]bool{}
+	selected := []ReservationAllocation{}
 	machines := append([]Machine(nil), config.Machines...)
 	sort.Slice(machines, func(i, j int) bool { return machines[i].ID < machines[j].ID })
 	for _, machine := range machines {
@@ -274,12 +273,11 @@ func (m *TaskManager) continuationCandidatesLocked(c Continuation, config Config
 			excluded[machine.ID] = "waiting_for_continuous_idle"
 			continue
 		}
-		if seen[key] || seenHosts[strings.ToLower(machine.Host)] {
+		if conflictsWithAny(machineAllocation(machine), selected) {
 			excluded[machine.ID] = "physical_resource_alias"
 			continue
 		}
-		seen[key] = true
-		seenHosts[strings.ToLower(machine.Host)] = true
+		selected = append(selected, machineAllocation(machine))
 		ids := make([]string, len(devices))
 		for i, device := range devices {
 			ids[i] = device.ID

@@ -42,14 +42,13 @@ func validateGroupReservation(r Reservation) error {
 	if len(r.MachineIDs) < 2 || len(r.MachineIDs) > 12 || len(r.Allocations) != len(r.MachineIDs) || !identifier.MatchString(r.TaskID) || !identifier.MatchString(r.GrantID) || r.Generation != 1 || !hexDigest(r.PlanSHA256) || r.IntentSHA256 != "" && !hexDigest(r.IntentSHA256) {
 		return errors.New("GROUP_RESERVATION_CORRUPT")
 	}
-	seen, hosts, resources := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	held := []ReservationAllocation{}
 	coordinator := false
 	for i, a := range r.Allocations {
-		host := strings.ToLower(strings.TrimSpace(a.Host))
-		if !identifier.MatchString(a.MachineID) || a.MachineID != r.MachineIDs[i] || seen[a.MachineID] || host == "" || hosts[host] || a.ResourceKey == "" || resources[a.ResourceKey] || a.Port < 1 || a.Port > 65535 {
+		if !identifier.MatchString(a.MachineID) || a.MachineID != r.MachineIDs[i] || strings.TrimSpace(a.Host) == "" || a.ResourceKey == "" || a.Port < 1 || a.Port > 65535 || conflictsWithAny(a, held) {
 			return errors.New("GROUP_RESERVATION_CORRUPT")
 		}
-		seen[a.MachineID], hosts[host], resources[a.ResourceKey] = true, true, true
+		held = append(held, a)
 		if a.MachineID == r.MachineID {
 			coordinator = a.Host == r.Host && a.Port == r.Port && a.ResourceKey == r.ResourceKey
 		}

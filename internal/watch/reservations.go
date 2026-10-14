@@ -33,7 +33,7 @@ func machineResource(machine Machine) string {
 	if machine.ResourceID != "" {
 		return "physical:" + machine.ResourceID
 	}
-	// Conservatively share occupancy across SSH ports on the same host.
+	// No declared physical identity: conservatively share the host across ports.
 	return "host:" + strings.ToLower(strings.TrimSpace(machine.Host))
 }
 

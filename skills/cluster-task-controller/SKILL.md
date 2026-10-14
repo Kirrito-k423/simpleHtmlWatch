@@ -7,6 +7,10 @@ description: "当用户要求通过 simpleHtmlWatch 的本机 SSH 任务中台�
 
 AIConnector 整组实验使用能力 `atomic-group-reservations-v1`，详见包内 `docs/atomic-group-reservations.md`。这是固定控制机计划的整组预留；已有 `--group` 任务选择器仍只选择一台。不要用逐台抢锁代替原子分配，不以控制机退出代替全部 rank 结束证据。
 
+本机跳板转发还需发现 `forwarded-resource-identity-v1`。用 `machines` 核对 `host / port / resourceKey`：不同回环端口只有在 `physical:<resourceId>` 明确且不同的情况下才是独立资源；同一真实节点的各入口必须使用同一个 ID。不能仅凭不同端口设置不同物理 ID。未填 ID 或旧记录缺少身份时仍按 host 保守占用；缺能力报告维护者，不自动升级。
+
+预约入口：`reserve --request <固定请求JSON>`（单机包含 `id / machineId`，整组再含 `machineIds / taskId / planSha256`），只预留不执行命令，写入前打印原 ID；回复不确定用 `reservations --id <原ID>` 查询，不换 ID 重放。双机实验优先整组原子预留。已有预约提交用固定 `submit --id <原任务ID> --machine <控制机ID> --reservation <原预约ID> --command-file <原命令文件>`；整组还须原 `--reservation-grant` 和 `--reservation-generation`。全部远端 rank 已确认退出、无不确定启动意图后，原调用方 `release-reservation <原预约ID>`；不释放其他对话的预约。
+
 使用 `scripts/taskctl.py` 调用用户本机的 simpleHtmlWatch。中台保存 SSH 凭据和主机指纹，并支持密码失败后自动回退到 SSH key；私钥路径属于运行中台的电脑。不要读取、复制或输出密码、私钥及私钥口令。只连接 `127.0.0.1` 或 `localhost` 上的服务。
 
 先定位本 Skill 的全局入口；在终端中可设置：

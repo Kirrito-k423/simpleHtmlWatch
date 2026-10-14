@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"sort"
@@ -39,6 +38,7 @@ type TaskEvent struct {
 type TaskJob struct {
 	TaskRequest
 	SelectedMachineID string      `json:"selectedMachineId"`
+	ResourceKey       string      `json:"resourceKey,omitempty"`
 	MachineName       string      `json:"machineName"`
 	Host              string      `json:"host"`
 	Port              int         `json:"port"`
@@ -261,15 +261,13 @@ func (m *TaskManager) readyLocked(c Config, states map[string]State, machineID, 
 }
 
 func (m *TaskManager) readyForReservationLocked(c Config, states map[string]State, machineID, group, owner string) []ReadyMachine {
-	busy := map[string]bool{}
-	busyAddress := map[string]bool{}
-	busyHosts := map[string]bool{}
+	held := []ReservationAllocation{}
 	busyResources := map[string]bool{}
 	for key := range m.cleanup.Busy {
 		busyResources[key] = true
 		for _, h := range c.Machines {
 			if machineResource(h) == key {
-				busyHosts[strings.ToLower(strings.TrimSpace(h.Host))] = true
+				held = append(held, machineAllocation(h))
 			}
 		}
 	}
@@ -278,36 +276,31 @@ func (m *TaskManager) readyForReservationLocked(c Config, states map[string]Stat
 			continue
 		}
 		for _, allocation := range continuation.Allocations {
-			busy[allocation.MachineID], busyResources[allocation.ResourceKey] = true, true
-			busyHosts[strings.ToLower(strings.TrimSpace(allocation.Host))] = true
+			held = append(held, continuationAllocation(allocation))
 		}
 	}
 	for _, reservation := range m.reservations {
 		if reservation.ReleasedAt == nil && reservation.ID != owner {
 			for _, a := range reservationAllocations(reservation) {
-				busy[a.MachineID] = true
-				busyHosts[strings.ToLower(strings.TrimSpace(a.Host))] = true
-				busyResources[a.ResourceKey] = true
+				held = append(held, a)
 			}
 		}
 	}
 	for _, job := range m.jobs {
 		if job.FinishedAt == nil {
-			busyHosts[strings.ToLower(strings.TrimSpace(job.Host))] = true
+			held = append(held, taskAllocation(job))
 			for _, machine := range c.Machines {
 				if machine.ID == job.SelectedMachineID {
-					busyResources[machineResource(machine)] = true
+					held = append(held, machineAllocation(machine))
 				}
 			}
-			busy[job.SelectedMachineID] = true
-			busyAddress[net.JoinHostPort(job.Host, strconv.Itoa(job.Port))] = true
 		}
 	}
 	maxAge := time.Duration(c.Interval*2+30) * time.Second
 	ready := []ReadyMachine{}
 	for _, machine := range c.Machines {
 		state := states[machine.ID]
-		if !machine.Enabled || busy[machine.ID] || busyHosts[strings.ToLower(strings.TrimSpace(machine.Host))] || busyResources[machineResource(machine)] || busyAddress[net.JoinHostPort(machine.Host, strconv.Itoa(machine.Port))] || machineID != "" && machine.ID != machineID || group != "" && machine.Group != group ||
+		if !machine.Enabled || conflictsWithAny(machineAllocation(machine), held) || busyResources[machineResource(machine)] || machineID != "" && machine.ID != machineID || group != "" && machine.Group != group ||
 			(state.Status != "online" && state.Status != "partial") || state.UpdatedAt.IsZero() || state.UpdatedAt.After(m.now()) || m.now().Sub(state.UpdatedAt) > maxAge {
 			continue
 		}
@@ -379,7 +372,7 @@ func (m *TaskManager) Submit(request TaskRequest) (TaskJob, int, error) {
 		}
 	}
 	now := time.Now()
-	job := &TaskJob{TaskRequest: request, SelectedMachineID: selected.ID, MachineName: selected.Name, Host: host.Host, Port: host.Port, Username: username, Status: "dispatching", CreatedAt: now, UpdatedAt: now}
+	job := &TaskJob{TaskRequest: request, SelectedMachineID: selected.ID, ResourceKey: machineResource(host), MachineName: selected.Name, Host: host.Host, Port: host.Port, Username: username, Status: "dispatching", CreatedAt: now, UpdatedAt: now}
 	taskEvent(job, now, "dispatching", "任务已受理，分配至 "+selected.Name)
 	if err := m.continuationIntentLocked(request); err != nil {
 		return TaskJob{}, 500, err

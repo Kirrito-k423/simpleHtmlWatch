@@ -260,7 +260,8 @@ func (m *TaskManager) loadContinuations() error {
 		return errors.New("CONTINUATION_STORE_CORRUPT")
 	}
 	states := map[string]bool{"waiting_resources": true, "offered": true, "claimed": true, "executing": true, "awaiting_review": true, "recovery_needed": true, "completed": true, "paused": true, "cancelled": true, "expired": true}
-	usedTasks, usedResources, usedHosts := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	usedTasks := map[string]bool{}
+	held := []ReservationAllocation{}
 	for id, c := range saved.Jobs {
 		if normalizeContinuation(&c.ContinuationRequest) != nil || id != c.ID || !states[c.State] || c.CreatedAt.IsZero() || c.Generation < 0 {
 			return errors.New("CONTINUATION_STORE_CORRUPT")
@@ -285,20 +286,20 @@ func (m *TaskManager) loadContinuations() error {
 		}
 		if continuationOccupied(c) {
 			for i, allocation := range c.Allocations {
-				host := strings.ToLower(allocation.Host)
-				if !identifier.MatchString(allocation.MachineID) || !identifier.MatchString(allocation.ProfileID) || allocation.Username == "" || allocation.ResourceKey == "" || host == "" || allocation.Port < 1 || allocation.Port > 65535 || allocation.TaskID != c.Tasks[i].ID || usedResources[allocation.ResourceKey] || usedHosts[host] {
+				target := continuationAllocation(allocation)
+				if !identifier.MatchString(allocation.MachineID) || !identifier.MatchString(allocation.ProfileID) || allocation.Username == "" || allocation.ResourceKey == "" || strings.TrimSpace(allocation.Host) == "" || allocation.Port < 1 || allocation.Port > 65535 || allocation.TaskID != c.Tasks[i].ID || conflictsWithAny(target, held) {
 					return errors.New("CONTINUATION_GRANT_CORRUPT")
 				}
 				for _, reservation := range m.reservations {
 					if reservation.ReleasedAt == nil {
 						for _, a := range reservationAllocations(reservation) {
-							if a.ResourceKey == allocation.ResourceKey || strings.EqualFold(a.Host, host) {
+							if resourcesConflict(a, target) {
 								return errors.New("CONTINUATION_RESERVATION_CONFLICT")
 							}
 						}
 					}
 				}
-				usedResources[allocation.ResourceKey], usedHosts[host] = true, true
+				held = append(held, target)
 			}
 		}
 		m.continuations[id] = c

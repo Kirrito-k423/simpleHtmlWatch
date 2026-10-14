@@ -2,7 +2,6 @@ package watch
 
 import (
 	"sort"
-	"strings"
 	"time"
 )
 
@@ -13,6 +12,7 @@ type TaskMachine struct {
 	Name            string    `json:"name"`
 	Group           string    `json:"group"`
 	Host            string    `json:"host"`
+	Port            int       `json:"port"`
 	ResourceKey     string    `json:"resourceKey"`
 	Enabled         bool      `json:"enabled"`
 	Status          string    `json:"status"`
@@ -33,24 +33,26 @@ func (m *TaskManager) Machines() []TaskMachine {
 		ready[machine.ID] = true
 	}
 	resources := map[string]string{}
+	targets := map[string]ReservationAllocation{}
 	for _, machine := range c.Machines {
 		resources[machine.ID] = machineResource(machine)
+		targets[machine.ID] = machineAllocation(machine)
 	}
 	out := make([]TaskMachine, 0, len(c.Machines))
 	for _, machine := range c.Machines {
 		state := states[machine.ID]
-		item := TaskMachine{ID: machine.ID, Name: machine.Name, Group: machine.Group, Host: machine.Host,
+		item := TaskMachine{ID: machine.ID, Name: machine.Name, Group: machine.Group, Host: machine.Host, Port: machine.Port,
 			ResourceKey: resources[machine.ID], Enabled: machine.Enabled, Status: state.Status,
 			UpdatedAt: state.UpdatedAt, Ready: ready[machine.ID], TaskIDs: []string{}, ReservationIDs: []string{}}
 		for _, job := range m.jobs {
-			if job.FinishedAt == nil && (job.SelectedMachineID == machine.ID || strings.EqualFold(job.Host, machine.Host) || resources[job.SelectedMachineID] == item.ResourceKey) {
+			if job.FinishedAt == nil && (resourcesConflict(taskAllocation(job), targets[machine.ID]) || resourcesConflict(targets[job.SelectedMachineID], targets[machine.ID])) {
 				item.TaskIDs = append(item.TaskIDs, job.ID)
 			}
 		}
 		for _, reservation := range m.reservations {
 			if reservation.ReleasedAt == nil {
 				for _, a := range reservationAllocations(reservation) {
-					if a.MachineID == machine.ID || strings.EqualFold(a.Host, machine.Host) || a.ResourceKey == item.ResourceKey {
+					if resourcesConflict(a, targets[machine.ID]) {
 						item.ReservationIDs = append(item.ReservationIDs, reservation.ID)
 						break
 					}
@@ -62,7 +64,7 @@ func (m *TaskManager) Machines() []TaskMachine {
 				continue
 			}
 			for _, allocation := range continuation.Allocations {
-				if allocation.ResourceKey == item.ResourceKey || strings.EqualFold(allocation.Host, machine.Host) || allocation.MachineID == machine.ID {
+				if resourcesConflict(continuationAllocation(allocation), targets[machine.ID]) {
 					item.ContinuationIDs = append(item.ContinuationIDs, id)
 					break
 				}

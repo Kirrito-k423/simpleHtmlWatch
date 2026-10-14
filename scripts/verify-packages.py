@@ -9,7 +9,7 @@ import zipfile
 
 version = sys.argv[1]
 dist = Path(__file__).resolve().parents[1] / "dist"
-capabilities = ("accelerator-utilization-v1", "accelerator-occupancy-v1", "queue-residue-cleanup-v1")
+capabilities = ("accelerator-utilization-v1", "accelerator-occupancy-v1", "queue-residue-cleanup-v1", "forwarded-resource-identity-v1")
 forbidden = {"config.enc", "vault.key", "service.json", "app.lock", "known_hosts", "__pycache__", ".DS_Store"}
 checksums = {name: sha for sha, name in (line.split("  ", 1) for line in (dist / "SHA256SUMS").read_text().splitlines())}
 report = {"version": version, "capabilities": list(capabilities), "packages": []}

@@ -376,6 +376,13 @@ def main():
     ready = sub.add_parser("ready", help="列出可调度机器")
     ready.add_argument("--group")
     ready.add_argument("--machine")
+    sub.add_parser("machines", help="列出机器入口、物理资源标识和占用原因")
+    reservations = sub.add_parser("reservations", help="只读查询预约，写请求不确定时查询原 ID")
+    reservations.add_argument("--id")
+    reserve = sub.add_parser("reserve", help="按固定请求文件预约单机或原子整组，不启动远端任务")
+    reserve.add_argument("--request", required=True)
+    release = sub.add_parser("release-reservation", help="释放自己的预约；有未结束任务或不确定启动意图时拒绝")
+    release.add_argument("id")
     submit = sub.add_parser("submit", help="提交一条长任务")
     selector = submit.add_mutually_exclusive_group()
     selector.add_argument("--group")
@@ -384,6 +391,9 @@ def main():
     command.add_argument("--command")
     command.add_argument("--command-file")
     submit.add_argument("--id", help="重发相同请求时复用原任务 ID")
+    submit.add_argument("--reservation", help="已有预约 ID，须同时指定 --id 和 --machine")
+    submit.add_argument("--reservation-grant", help="整组预约返回的固定 grantId")
+    submit.add_argument("--reservation-generation", type=int, default=0)
     for action in ("status", "logs", "collect", "resolve", "download", "wait"):
         p = sub.add_parser(action, help={"status": "查看任务状态", "logs": "读取日志末尾", "collect": "重试回收结果", "resolve": "人工确认后解除未知任务占用", "download": "下载结果包", "wait": "轮询直到完成"}[action])
         p.add_argument("id")
@@ -412,12 +422,47 @@ def main():
     if args.action == "discover":
         show(client.discover())
         return 0
+    if args.action in ("reserve", "reservations", "release-reservation"):
+        if args.allow_legacy:
+            raise ValueError("预约客户端不允许 legacy 模式")
+        client.capabilities.add("reservations")
+        if args.action == "reserve":
+            path = Path(args.request)
+            if path.stat().st_size > 16 * 1024:
+                raise ValueError("预约请求不能超过 16 KiB")
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict) or not payload.get("id") or not payload.get("machineId"):
+                raise ValueError("预约请求需包含固定 id 和 machineId；禁止自动生成替代 ID")
+            client.capabilities.add("forwarded-resource-identity-v1")
+            if payload.get("machineIds"):
+                client.capabilities.add("atomic-group-reservations-v1")
+            print(f"预约 ID：{payload['id']}", flush=True)
+            show(client.api("/reservations", "POST", payload))
+        elif args.action == "release-reservation":
+            print(f"预约 ID：{args.id}", flush=True)
+            show(client.api("/reservations/release", "POST", {"id": args.id}))
+        else:
+            result = client.api("/reservations")
+            if args.id:
+                if args.id not in result["reservations"]:
+                    raise ValueError("预约不存在；未自动重放请求")
+                result = result["reservations"][args.id]
+            show(result)
+        return 0
     if args.action == "ready":
         if args.group and args.machine:
             raise ValueError("ready 只能指定一个选择器")
         query = urllib.parse.urlencode({"group": args.group or "", "machineId": args.machine or ""})
         show(client.api("/ready?" + query))
+    elif args.action == "machines":
+        show(client.api("/machines"))
     elif args.action == "submit":
+        if args.reservation_grant or args.reservation_generation:
+            if not args.reservation or not args.reservation_grant or args.reservation_generation < 1:
+                raise ValueError("整组提交须提供完整预约、Grant 和 generation")
+            client.capabilities.update(("atomic-group-reservations-v1", "forwarded-resource-identity-v1"))
+        if args.reservation and (not args.id or not args.machine or args.allow_legacy):
+            raise ValueError("预约提交须提供原 --id 和固定 --machine，不能使用 legacy 模式")
         if args.command_file:
             with open(args.command_file, encoding="utf-8") as source:
                 shell = source.read()
@@ -429,6 +474,12 @@ def main():
             payload["machineId"] = args.machine
         elif args.group:
             payload["group"] = args.group
+        if args.reservation:
+            client.capabilities.add("reservations")
+            payload["reservationId"] = args.reservation
+            if args.reservation_grant:
+                payload["reservationGrantId"] = args.reservation_grant
+                payload["reservationGeneration"] = args.reservation_generation
         print(f"任务 ID：{task_id}", flush=True)
         show(client.api("", "POST", payload))
     elif args.action == "status":

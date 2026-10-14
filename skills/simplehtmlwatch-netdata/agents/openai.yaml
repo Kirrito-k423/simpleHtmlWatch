@@ -1,0 +1,4 @@
+interface:
+  display_name: "集群系统指标与 NPU 利用率"
+  short_description: "核验中台实例，查询集群系统指标、机器级 NPU 小时算力和占用比例及低负载时段"
+  default_prompt: "使用 $simplehtmlwatch-netdata 核验实例，查询昨天或近一周各机器 NPU 平均算力、占用时长比例与各自覆盖率，以及真实系统指标。"

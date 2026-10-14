@@ -2,6 +2,7 @@
 """通过本机 simpleHtmlWatch API 管理远端任务。"""
 
 import argparse
+import hashlib
 import html
 import http.client
 import json
@@ -43,7 +44,7 @@ class HTTPFailure(RuntimeError):
         super().__init__(f"HTTP {status}：{detail}")
 
 
-def request(url, token=None, method="GET", data=None, binary=False, run_id=None, timeout=45):
+def request(url, token=None, method="GET", data=None, binary=False, run_id=None, timeout=45, max_response_bytes=1024 * 1024):
     headers = {"X-Watch-Token": token} if token else {}
     if run_id:
         headers["X-Watch-Instance"] = run_id
@@ -56,7 +57,10 @@ def request(url, token=None, method="GET", data=None, binary=False, run_id=None,
         if binary:
             return response
         with response:
-            return response.read(1024 * 1024).decode("utf-8")
+            body = response.read(max_response_bytes + 1)
+            if len(body) > max_response_bytes:
+                raise RuntimeError("响应超过客户端上限，未使用截断数据")
+            return body.decode("utf-8")
     except urllib.error.HTTPError as exc:
         with exc:
             detail = exc.read(4096).decode("utf-8", "replace")
@@ -186,6 +190,134 @@ class Client:
         raw = request(self.url + "/api/tasks" + path, self.token, method, data, binary, self.run_id, timeout)
         return raw if binary else json.loads(raw)
 
+    def continuation_api(self, path="", method="GET", data=None):
+        if self.allow_legacy:
+            raise ValueError("实验等待协议不允许 legacy 模式")
+        self.capabilities.add("experiment-continuations-v1")
+        self.prepare()
+        raw = request(self.url + "/api/continuations" + path, self.token, method,
+                      data, run_id=self.run_id, max_response_bytes=16 * 1024 * 1024)
+        return json.loads(raw)
+
+
+def checkpoint_digest(checkpoint):
+    if not isinstance(checkpoint, dict) or not isinstance(checkpoint.get("path"), str):
+        raise ValueError("检查点需包含绝对路径 path")
+    path = Path(checkpoint["path"])
+    if not path.is_absolute() or path.stat().st_size > 1024 * 1024:
+        raise ValueError("检查点需为不超过 1 MiB 的绝对路径文件")
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    expected = checkpoint.get("digest")
+    if expected and digest != expected:
+        raise ValueError("检查点已变化；先核对原实验，不自动执行旧计划")
+    return digest
+
+
+def client_arguments(parser):
+    parser.add_argument("--url", default=os.environ.get("SHW_URL"), help="显式本机 URL；默认发现登记实例")
+    parser.add_argument("--instance", default=os.environ.get("SHW_INSTANCE", "default"))
+    parser.add_argument("--data-dir", default=os.environ.get("SHW_DATA_DIR"))
+    parser.add_argument("--service-id", help="绑定稳定 serviceId")
+    parser.add_argument("--expect-version")
+    parser.add_argument("--require-capability", action="append", default=[])
+    parser.add_argument("--allow-legacy", action="store_true")
+
+
+def continuation_actions(sub):
+    p = sub.add_parser("await-resources", help="保存已授权实验的资源等待合同")
+    p.add_argument("--request", required=True, help="含固定等待 ID 和任务计划的 JSON 文件")
+    p = sub.add_parser("continuation-status", help="查询等待单或全部等待单")
+    p.add_argument("id", nargs="?")
+    p = sub.add_parser("continuation-evaluate", help="原对话心跳立即评估资源")
+    p.add_argument("id")
+    p = sub.add_parser("continuation-control", help="暂停、取消或恢复后续工作，不杀远端任务")
+    p.add_argument("id")
+    p.add_argument("action_name", choices=("pause", "cancel", "resume", "set-mode"))
+    p.add_argument("--wake-mode", choices=("bridge", "heartbeat"))
+    for name in ("continuation-claim", "continuation-submit", "continuation-report"):
+        p = sub.add_parser(name, help="按原对话、代数与检查点领取 / 提交 / 汇报实验")
+        p.add_argument("id")
+        p.add_argument("--thread", required=True)
+        p.add_argument("--generation", type=int, required=True)
+        if name == "continuation-submit":
+            p.add_argument("--grant", required=True)
+        else:
+            p.add_argument("--event", required=True)
+        if name == "continuation-report":
+            p.add_argument("--action", dest="report_action", choices=("complete", "release-unused"), required=True)
+            p.add_argument("--outcome", choices=("succeeded", "failed"))
+            p.add_argument("--evidence", default="")
+
+
+def run_continuation_action(client, args):
+    if args.action == "await-resources":
+        path = Path(args.request)
+        if path.stat().st_size > 1024 * 1024:
+            raise ValueError("等待合同不能超过 1 MiB")
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict) or not payload.get("id") or not isinstance(payload.get("checkpoint"), dict):
+            raise ValueError("等待合同需包含固定 id 与 checkpoint")
+        payload["checkpoint"]["digest"] = checkpoint_digest(payload["checkpoint"])
+        print(f"等待单 ID：{payload['id']}（传输不确定时先查询，不换 ID）", flush=True)
+        saved = client.continuation_api("", "POST", payload)
+        show(saved)
+        if saved["policy"]["wakeMode"] == "heartbeat":
+            print("等待单已保存；原对话仍需配置宿主 heartbeat。恢复时使用此版本客户端：" + str(Path(__file__).resolve()))
+        else:
+            print("等待单已保存；主动续聊仍需连接已核实原对话归属的 bridge。")
+        return 0
+    query = "?" + urllib.parse.urlencode({"id": args.id}) if args.id else ""
+    if args.action == "continuation-status":
+        show(client.continuation_api(query))
+        return 0
+    if args.action in ("continuation-control", "continuation-evaluate"):
+        suffix = "/control" if args.action == "continuation-control" else "/evaluate"
+        payload = {"id": args.id}
+        if suffix == "/control":
+            payload["action"] = args.action_name
+            if args.action_name == "set-mode":
+                if not args.wake_mode:
+                    raise ValueError("set-mode 需提供 --wake-mode")
+                payload["wakeMode"] = args.wake_mode
+        show(client.continuation_api(suffix, "POST", payload))
+        return 0
+    job = client.continuation_api(query)
+    if job["target"]["threadId"] != args.thread or job["generation"] != args.generation:
+        raise ValueError("原对话或等待代数不匹配；拒绝接手")
+    digest = checkpoint_digest(job["checkpoint"])
+    if args.action == "continuation-submit":
+        if job.get("grantId") != args.grant or job["state"] not in ("claimed", "executing"):
+            raise ValueError("持有资源代数无效；先领取并查询原任务")
+        plan = {task["id"]: task["shell"] for task in job["tasks"]}
+        for allocation in job["allocations"]:
+            payload = {"id": allocation["taskId"], "shell": plan[allocation["taskId"]],
+                       "machineId": allocation["machineId"], "continuationId": job["id"],
+                       "generation": job["generation"], "grantId": job["grantId"]}
+            print(f"固定任务 ID：{payload['id']}", flush=True)
+            # Query before submission, including when resuming a partial bundle.
+            try:
+                old = client.api("?" + urllib.parse.urlencode({"id": payload["id"]}))
+            except HTTPFailure as exc:
+                if exc.status != 404:
+                    raise
+            else:
+                if any(old.get(key) != value for key, value in payload.items()):
+                    raise ValueError("原任务请求不同；拒绝复用 ID")
+                show(old)
+                continue
+            show(client.api("", "POST", payload))
+        return 0
+    if job.get("wake", {}).get("id") != args.event:
+        raise ValueError("唤醒事件过期；查询当前等待单")
+    payload = {"id": args.id, "generation": args.generation, "wakeEventId": args.event,
+               "threadId": args.thread, "checkpointDigest": digest}
+    suffix = "/claim"
+    if args.action == "continuation-report":
+        suffix = "/report"
+        payload.update(action=args.report_action, outcome=args.outcome or "", evidence=args.evidence)
+    show(client.continuation_api(suffix, "POST", payload))
+    return 0
+
 
 def save_archive(response, path):
     """分块保存结果包；拒绝覆盖，失败或中断时移除本次残留文件。"""
@@ -232,10 +364,25 @@ def main():
     parser.add_argument("--require-capability", action="append", default=[], help="要求能力，可重复；任务操作默认要求 tasks")
     parser.add_argument("--allow-legacy", action="store_true", help="仅显式 URL：允许没有身份接口的历史版本，不具备身份校验")
     sub = parser.add_subparsers(dest="action", required=True)
+    continuation_actions(sub)
+    cleanup_status = sub.add_parser("cleanup-status", help="只读查看常驻清理策略及诊断摘要")
+    cleanup_status.add_argument("--id", help="读取一条完整诊断和清理日志")
+    cleanup_policy = sub.add_parser("cleanup-policy", help="设置已授权的常驻失败残留清理策略")
+    cleanup_switch = cleanup_policy.add_mutually_exclusive_group(required=True)
+    cleanup_switch.add_argument("--enable", action="store_true")
+    cleanup_switch.add_argument("--disable", action="store_true")
+    cleanup_policy.add_argument("--authorization-ref", default="")
     sub.add_parser("discover", help="只读发现并校验实例、版本、能力和当前地址")
     ready = sub.add_parser("ready", help="列出可调度机器")
     ready.add_argument("--group")
     ready.add_argument("--machine")
+    sub.add_parser("machines", help="列出机器入口、物理资源标识和占用原因")
+    reservations = sub.add_parser("reservations", help="只读查询预约，写请求不确定时查询原 ID")
+    reservations.add_argument("--id")
+    reserve = sub.add_parser("reserve", help="按固定请求文件预约单机或原子整组，不启动远端任务")
+    reserve.add_argument("--request", required=True)
+    release = sub.add_parser("release-reservation", help="释放自己的预约；有未结束任务或不确定启动意图时拒绝")
+    release.add_argument("id")
     submit = sub.add_parser("submit", help="提交一条长任务")
     selector = submit.add_mutually_exclusive_group()
     selector.add_argument("--group")
@@ -244,6 +391,9 @@ def main():
     command.add_argument("--command")
     command.add_argument("--command-file")
     submit.add_argument("--id", help="重发相同请求时复用原任务 ID")
+    submit.add_argument("--reservation", help="已有预约 ID，须同时指定 --id 和 --machine")
+    submit.add_argument("--reservation-grant", help="整组预约返回的固定 grantId")
+    submit.add_argument("--reservation-generation", type=int, default=0)
     for action in ("status", "logs", "collect", "resolve", "download", "wait"):
         p = sub.add_parser(action, help={"status": "查看任务状态", "logs": "读取日志末尾", "collect": "重试回收结果", "resolve": "人工确认后解除未知任务占用", "download": "下载结果包", "wait": "轮询直到完成"}[action])
         p.add_argument("id")
@@ -255,15 +405,64 @@ def main():
             p.add_argument("--interval", type=float, default=3)
     args = parser.parse_args()
     client = Client(args)
+    if args.action == "await-resources" or args.action.startswith("continuation-"):
+        return run_continuation_action(client, args)
+    if args.action in ("cleanup-status", "cleanup-policy"):
+        if args.allow_legacy:
+            raise ValueError("清理策略不允许 legacy 模式")
+        client.capabilities.add("queue-residue-cleanup-v1")
+        if args.action == "cleanup-policy":
+            if args.enable and not args.authorization_ref.strip():
+                raise ValueError("启用清理策略需提供已有用户授权的记录 --authorization-ref")
+            show(client.api("/cleanup", "POST", {"enabled": args.enable, "authorizationRef": args.authorization_ref}))
+        else:
+            query = "?" + urllib.parse.urlencode({"id": args.id}) if args.id else ""
+            show(client.api("/cleanup" + query))
+        return 0
     if args.action == "discover":
         show(client.discover())
+        return 0
+    if args.action in ("reserve", "reservations", "release-reservation"):
+        if args.allow_legacy:
+            raise ValueError("预约客户端不允许 legacy 模式")
+        client.capabilities.add("reservations")
+        if args.action == "reserve":
+            path = Path(args.request)
+            if path.stat().st_size > 16 * 1024:
+                raise ValueError("预约请求不能超过 16 KiB")
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict) or not payload.get("id") or not payload.get("machineId"):
+                raise ValueError("预约请求需包含固定 id 和 machineId；禁止自动生成替代 ID")
+            client.capabilities.add("forwarded-resource-identity-v1")
+            if payload.get("machineIds"):
+                client.capabilities.add("atomic-group-reservations-v1")
+            print(f"预约 ID：{payload['id']}", flush=True)
+            show(client.api("/reservations", "POST", payload))
+        elif args.action == "release-reservation":
+            print(f"预约 ID：{args.id}", flush=True)
+            show(client.api("/reservations/release", "POST", {"id": args.id}))
+        else:
+            result = client.api("/reservations")
+            if args.id:
+                if args.id not in result["reservations"]:
+                    raise ValueError("预约不存在；未自动重放请求")
+                result = result["reservations"][args.id]
+            show(result)
         return 0
     if args.action == "ready":
         if args.group and args.machine:
             raise ValueError("ready 只能指定一个选择器")
         query = urllib.parse.urlencode({"group": args.group or "", "machineId": args.machine or ""})
         show(client.api("/ready?" + query))
+    elif args.action == "machines":
+        show(client.api("/machines"))
     elif args.action == "submit":
+        if args.reservation_grant or args.reservation_generation:
+            if not args.reservation or not args.reservation_grant or args.reservation_generation < 1:
+                raise ValueError("整组提交须提供完整预约、Grant 和 generation")
+            client.capabilities.update(("atomic-group-reservations-v1", "forwarded-resource-identity-v1"))
+        if args.reservation and (not args.id or not args.machine or args.allow_legacy):
+            raise ValueError("预约提交须提供原 --id 和固定 --machine，不能使用 legacy 模式")
         if args.command_file:
             with open(args.command_file, encoding="utf-8") as source:
                 shell = source.read()
@@ -275,6 +474,12 @@ def main():
             payload["machineId"] = args.machine
         elif args.group:
             payload["group"] = args.group
+        if args.reservation:
+            client.capabilities.add("reservations")
+            payload["reservationId"] = args.reservation
+            if args.reservation_grant:
+                payload["reservationGrantId"] = args.reservation_grant
+                payload["reservationGeneration"] = args.reservation_generation
         print(f"任务 ID：{task_id}", flush=True)
         show(client.api("", "POST", payload))
     elif args.action == "status":

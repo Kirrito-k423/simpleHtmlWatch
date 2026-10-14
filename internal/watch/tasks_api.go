@@ -29,6 +29,31 @@ func (s *Server) tasksAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch r.URL.Path {
+	case "/api/tasks/cleanup":
+		if r.Method == "POST" {
+			if id != "" {
+				fail(w, 400, "策略写入不接受日志 ID")
+				return
+			}
+			var policy CleanupPolicy
+			if err := decode(w, r, &policy); err != nil {
+				fail(w, 400, err.Error())
+				return
+			}
+			if err := s.tasks.SetCleanupPolicy(policy); err != nil {
+				fail(w, 400, err.Error())
+				return
+			}
+		} else if r.Method != "GET" {
+			w.WriteHeader(405)
+			return
+		}
+		status, err := s.tasks.CleanupStatus(id)
+		if err != nil {
+			fail(w, 404, err.Error())
+			return
+		}
+		jsonResponse(w, 200, status)
 	case "/api/tasks/machines":
 		if r.Method != "GET" {
 			w.WriteHeader(405)
@@ -52,7 +77,7 @@ func (s *Server) tasksAPI(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(w, 200, job)
 	case "/api/tasks/reservations", "/api/tasks/reservations/release":
 		if r.Method == "GET" && r.URL.Path == "/api/tasks/reservations" {
-			jsonResponse(w, 200, map[string]any{"schema": "simplehtmlwatch.reservations.v1", "reservations": s.tasks.Reservations()})
+			jsonResponse(w, 200, map[string]any{"schema": "simplehtmlwatch.reservations.v1", "atomicGroups": 1, "reservations": s.tasks.Reservations()})
 			return
 		}
 		if r.Method != "POST" {
@@ -60,8 +85,11 @@ func (s *Server) tasksAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var request struct {
-			ID        string `json:"id"`
-			MachineID string `json:"machineId"`
+			ID         string   `json:"id"`
+			MachineID  string   `json:"machineId"`
+			MachineIDs []string `json:"machineIds,omitempty"`
+			TaskID     string   `json:"taskId,omitempty"`
+			PlanSHA256 string   `json:"planSha256,omitempty"`
 		}
 		if err := decode(w, r, &request); err != nil || !identifier.MatchString(request.ID) {
 			fail(w, 400, "INVALID_RESERVATION")
@@ -72,6 +100,11 @@ func (s *Server) tasksAPI(w http.ResponseWriter, r *http.Request) {
 		var err error
 		if r.URL.Path == "/api/tasks/reservations/release" {
 			reservation, status, err = s.tasks.ReleaseReservation(request.ID)
+		} else if len(request.MachineIDs) > 0 {
+			reservation, status, err = s.tasks.ReserveGroup(GroupReservationRequest{request.ID, request.MachineID, request.MachineIDs, request.TaskID, request.PlanSHA256})
+		} else if request.TaskID != "" || request.PlanSHA256 != "" {
+			fail(w, 400, "INVALID_GROUP_RESERVATION")
+			return
 		} else {
 			reservation, status, err = s.tasks.Reserve(request.ID, request.MachineID)
 		}

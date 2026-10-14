@@ -144,6 +144,7 @@ type fixture struct {
 	customRuns      atomic.Int32
 	dropCustom      atomic.Bool
 	npuRuns         atomic.Int32
+	npuOutput       string // Set before starting the monitor fixture.
 	activeConns     sync.Map
 	stop            chan struct{}
 	wg              sync.WaitGroup
@@ -237,7 +238,11 @@ func newFixture(t *testing.T) *fixture {
 									_, _ = io.WriteString(stream.Stderr(), "npu-smi: command not found\n")
 									code = 127
 								} else if !f.emptyNPU.Load() {
-									_, _ = io.WriteString(stream, "NPU 0 OK\n")
+									output := f.npuOutput
+									if output == "" {
+										output = "NPU 0 OK\n"
+									}
+									_, _ = io.WriteString(stream, output)
 								}
 								if f.dropAllNPU.Load() || f.dropNPUOnce.CompareAndSwap(true, false) {
 									conn.Close()

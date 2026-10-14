@@ -6,6 +6,10 @@
   <title>simpleHtmlWatch __WATCH_VERSION__ · 机器监控</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%23c4f36a'/%3E%3Cpath d='M8 23h7l4-12 5 20 3-8h5' fill='none' stroke='%23121b12' stroke-width='3'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/style.css"><script src="/page-rotation.js" defer></script><script src="/app.js" defer></script><script src="/history.js" defer></script><script src="/execution.js" defer></script><script src="/task-timeline.js" defer></script><script src="/task-download.js" defer></script><script src="/tasks.js" defer></script><link rel="stylesheet" href="/execution.css"><link rel="stylesheet" href="/history.css"><link rel="stylesheet" href="/tasks.css">
+    <link rel="stylesheet" href="/metrics.css"><script src="/metric-plots.js" defer></script><script src="/metrics.js" defer></script>
+    <link rel="stylesheet" href="/utilization.css"><script src="/utilization.js" defer></script>
+    <link rel="stylesheet" href="/continuations.css"><script src="/continuations.js" defer></script>
+    <link rel="stylesheet" href="/cleanup.css"><script src="/cleanup.js" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -16,7 +20,7 @@
       <div class="tabs" id="view-tabs"><button data-view="npu" class="active">NPU 状态</button><button data-view="python">Python 进程</button><button data-view="usage">CPU / 内存</button><button data-view="custom">自定义</button></div>
       <div class="filters"><input id="search" type="search" placeholder="名称 / IP" aria-label="搜索机器"><select id="group-filter" aria-label="机器分组"><option value="">所有分组</option></select><select id="layout" aria-label="同屏台数"><option value="2">2 台 / 屏</option><option value="4">4 台 / 屏</option><option value="8">8 台 / 屏</option><option value="16" selected>16 台 / 屏</option></select><select id="output-position" aria-label="内容位置" title="统一定位所有机器输出的可见区域"><option value="top-left" selected>正文 · 左上</option><option value="top-right">正文 · 右上</option><option value="center">正文 · 居中</option><option value="bottom-left">正文 · 左下</option><option value="bottom-right">正文 · 右下</option></select><button id="refresh-btn" title="立即采集" aria-label="立即采集">↻</button><button id="pause-btn" title="暂停本页面显示更新，后台继续采集">Ⅱ 暂停</button></div>
     </div>
-    <div class="top-actions"><a class="task-top-link" href="/?tasks=1">任务中台</a><button id="execution-btn">批量执行</button><button id="history-btn">◷ 历史记录</button><button id="settings-btn">⚙ 管理机器</button><button id="fullscreen-btn" title="进入全屏，按 Esc 退出">⛶ 全屏</button></div>
+    <div class="top-actions"><button id="utilization-btn">NPU 利用率</button><button id="metrics-btn">系统指标</button><a class="task-top-link" href="/?tasks=1">任务中台</a><button id="execution-btn">批量执行</button><button id="history-btn">◷ 历史记录</button><button id="settings-btn">⚙ 管理机器</button><button id="fullscreen-btn" title="进入全屏，按 Esc 退出">⛶ 全屏</button></div>
   </header>
   <main>
     <section id="task-panel" aria-label="集群任务中台" hidden></section>
@@ -30,6 +34,27 @@
     <section id="grid" class="machine-grid" aria-label="机器监控卡片"></section>
     <footer><span id="live-status"><i></i> 自动刷新</span><span id="page-info"></span><div class="pagination-controls"><span id="rotation-status"></span><select id="auto-page" aria-label="自动翻页" title="按所选间隔循环翻页；后台持续采集全部已启用机器"><option value="0">自动翻页 · 关闭</option><option value="10">翻页 · 10 秒</option><option value="15">翻页 · 15 秒</option><option value="30">翻页 · 30 秒</option><option value="60">翻页 · 60 秒</option></select><button id="prev-btn" aria-label="上一页">←</button><button id="next-btn" aria-label="下一页">→</button><button id="exit-demo" hidden>退出演示</button></div></footer>
   </main>
+  <dialog id="utilization-dialog" class="utilization-dialog" aria-labelledby="utilization-title">
+    <div class="dialog-heading"><div><h2 id="utilization-title">机器级 NPU 利用率</h2><p>每台机器按小时汇总 · 北京时间</p></div><button id="utilization-close" type="button" aria-label="关闭 NPU 利用率">✕</button></div>
+    <div class="utilization-body">
+      <div class="utilization-controls"><label>范围<select id="utilization-period"><option value="today">今天 · 采集中</option><option value="yesterday">昨天 · 24 小时</option><option value="week">近 7 个完整日</option></select></label><label>分组<select id="utilization-group"><option value="">所有分组</option></select></label><label>视图<select id="utilization-day"></select></label><button id="utilization-refresh" type="button">刷新汇总</button><button id="utilization-export" type="button" disabled>导出 CSV</button></div>
+      <div id="utilization-message" role="status"></div><p id="utilization-storage"></p>
+      <div class="utilization-legend"><span>上行：平均算力</span><span class="util-low">低于 10%</span><span class="util-mid">10–50%</span><span class="util-high">50% 及以上</span><span>下行：占用时长</span><span class="util-idle">无占用</span><span class="util-occupied">有占用</span><span>— 缺失</span><span>斜纹：对应指标覆盖不足 90%</span></div>
+      <div id="utilization-table" class="utilization-table-wrap"></div>
+      <details class="utilization-windows"><summary>已观测到的低负载时段</summary><div id="utilization-windows"></div></details>
+      <section id="utilization-detail"></section>
+      <p class="utilization-note">算力为整机各 NPU 利用率的平均值。任意一张卡有 NPU 进程即视为整机占用；占用比例＝被占用时长／进程状态明确的观测时长，配合占用覆盖率阅读。两项按小时并列展示，点击机器查看明细。采样间采用有时限的前值估计，断连、未知及升级前未采集的占用历史不补零。历史低负载不能证明当前资源允许部署。</p>
+    </div>
+  </dialog>
+  <dialog id="metrics-dialog" class="metrics-dialog" aria-labelledby="metrics-title">
+    <div class="dialog-heading"><div><h2 id="metrics-title">系统指标</h2><p id="metrics-task-label">整机系统指标</p></div><button id="metrics-close" type="button" aria-label="关闭系统指标">✕</button></div>
+    <div class="metrics-body">
+      <div class="metrics-controls"><label>机器<select id="metrics-machine" aria-label="系统指标机器"></select></label><label>范围<select id="metrics-span" aria-label="系统指标时间范围"><option value="task" id="metrics-task-range" disabled>任务观测区间</option><option value="custom" disabled>指定 / 缩放范围</option><option value="300">最近 5 分钟</option><option value="900" selected>最近 15 分钟</option><option value="3600">最近 1 小时</option><option value="21600">最近 6 小时</option><option value="86400">最近 24 小时</option><option value="604800">最近 7 天</option></select></label><label><input id="metrics-live" type="checkbox" checked>跟随现在 · 10 秒刷新</label><button id="metrics-refresh" type="button">刷新指标</button><div class="metrics-zoom"><button type="button" data-metric-action="prev" aria-label="指标时间向前平移">‹</button><button type="button" data-metric-action="zoom-in" aria-label="放大指标时间范围">＋</button><button type="button" data-metric-action="zoom-out" aria-label="缩小指标时间范围">−</button><button type="button" data-metric-action="next" aria-label="指标时间向后平移">›</button></div></div>
+      <details class="metrics-range"><summary>指定时间段</summary><div class="metrics-custom-range"><label>开始<input id="metrics-after" type="datetime-local" step="1" aria-label="指标开始时间"></label><label>结束<input id="metrics-before" type="datetime-local" step="1" aria-label="指标结束时间"></label><button id="metrics-apply" type="button">查询时间段</button></div></details>
+      <div id="metrics-message" role="status"></div><div id="metrics-meta"></div><div id="metrics-hover"></div><div id="metrics-charts" class="metrics-charts"></div>
+      <p class="metrics-footnote">CPU 曲线显示各类非空闲时间；磁盘与网络方向值取绝对值。曲线按显示间隔取平均，可能隐藏短时尖峰；缺失采样保留断点。任务标记使用本机观测时间，需要与服务器校时；观测区间不能证明进程持续运行或 NPU 空闲。</p>
+    </div>
+  </dialog>
   <dialog id="settings-dialog" class="settings-dialog">
     <form id="settings-form"><div class="dialog-heading"><div><div class="eyebrow">WORKSPACE SETTINGS</div><h2>管理机器与共享凭据</h2></div><button type="button" data-close="settings-dialog" aria-label="关闭设置">✕</button></div>
       <div class="settings-body"><div class="section-title"><div><h3>01 / 共享凭据</h3><p>默认先用密码，失败后尝试 SSH key；密钥成功后，该机器后续优先使用密钥。密码可留空。</p><p>私钥路径填写本机绝对路径或 ~/；留空使用 SSH agent / ~/.ssh 默认私钥。</p></div><button type="button" id="add-profile">＋ 新增凭据</button></div><div id="profiles-editor"></div>

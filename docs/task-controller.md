@@ -137,8 +137,18 @@ v0.5.0-rc.4 根据 issue #7 调整为全宽的机器 / 任务泳道和连续时�
 
 持有者提交 `/api/tasks` 时附带 `reservationId`，并指定相同 `machineId`。未持有预留的任务不能占用这台机器。释放通过 `POST /api/tasks/reservations/release` 和 `{id}`，存在未结束或 unknown 的关联任务时返回 409；无 TTL 自动释放。释放后的 ID 永久不能再用于启动新任务，旧客户端不能释放后来持有者的预留。
 
-同一个 host 的不同 SSH 端口共用占用。若不同 IP/主机名实际属于一台物理机器，在机器配置里设置相同的 `resourceId`（1–80 位字母、数字、下划线或连字符）。保留 `tasks/reservations.json` 及原任务目录，重启恢复占用；不要通过删除这些文件解除任务。
+普通主机的不同 SSH 端口共用占用。若不同 IP/主机名实际属于一台物理机器，在机器管理中设置相同的「物理资源 ID」`resourceId`（1–80 位字母、数字、下划线或连字符）。
+
+本机 SSH 转发（`127.0.0.1`、`localhost`、`::1` 等回环入口）由能力 `forwarded-resource-identity-v1` 支持：各真实节点配置不同的 `resourceId`，同一真实节点的各入口填写相同 ID。只有双方 ID 明确且不同、入口端口不同，才允许独立占用；相同端口、相同物理资源、同机器 ID 始终互斥。不能仅因端口不同就当成独立机器。未填 ID、历史 host-only 预约或未保存物理身份的旧任务仍按 host 保守占用。配置 ID 是维护者的物理映射声明，不是中台探测出的硬件身份；改转发目标前必须核对映射。
+
+单机预约、整组预约、实验排队、清理互斥和机器占用显示使用同一规则。新任务保存提交时的资源键，修改配置不会解除原物理资源的占用。保留 `tasks/reservations.json`、`tasks/continuations.json` 及原任务目录，重启恢复占用；不要通过删除这些文件解除任务。
 
 预留作用于本实例 `/api/tasks` 调度入口。人工 SSH、即时批量命令 `/api/executions`、自定义监控命令、其他独立中台不会自动遵守这些预留；它们必须避开被预留的实验资源。`ready` 仍不证明 NPU 空闲。AIConnector 首版仅对固定机器入口开启并行。
 
 浏览器回归（开发环境）：`npm ci`、`npx playwright install chromium firefox webkit`、`npm run test:browser`。它启动仅监听本机的 Go 测试夹具，使用合成任务和模拟 SSH，覆盖三种浏览器内核的下载、时间缩放、机器完整性和确认解除流程。
+
+## 四机以上排队时的失败残留清理
+
+浏览器进入「任务中台」，在顶部点击「常驻排队清理」开关即可启用或关闭，授权说明和设置自动持久化，无需 Python 或命令。展开「诊断与清理日志」可点选机器/PID 记录，查看判定原因、进程日志末尾、诊断经过、清理意图与回执，并下载完整 JSON。缺少能力或状态读取失败时禁用开关，响应不确定时只查询状态，不重发写请求。
+
+实例支持 `queue-residue-cleanup-v1` 且维护者按已有授权启用后，至少四机的 continuation 等待单资源不足会触发保守的单卡诊断。debug 和 unknown 继续等待，只有明确失败残留并观测五分钟无进展才定点 SIGTERM。已有中台任务、unknown 和预留继续受保护，普通单机 submit 不触发。查询与日志使用 `taskctl.py cleanup-status [--id 日志ID]`。完整启用方式、分类边界、身份校验和持久化要求见 [常驻清理说明](experiment-continuations.md#常驻失败残留清理)。

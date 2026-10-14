@@ -8,6 +8,8 @@
 
 ## 开箱即用
 
+整机占用小时统计与任务中台的占卡残留诊断、清理开关已合并到同一程序包。Windows 安装、保留数据升级及两项功能入口见 [Windows 使用说明](WINDOWS-INSTALL.md)；在 Releases 中选择 v0.6.0 或更新版本的对应平台包。
+
 1. 从 [Releases](https://github.com/Kirrito-k423/simpleHtmlWatch/releases/latest) 下载 `windows_amd64.zip`（普通 Intel / AMD Windows 电脑）；Windows ARM 设备选择 `windows_arm64.zip`。
 2. 解压，双击 `simpleHtmlWatch.exe`，浏览器自动打开本机页面。**保留程序的控制台窗口，关闭它会停止采集。**
 3. 点「管理机器」，新增共享凭据，例如 `实验室 root`，填写用户名 `root`；可填写密码，也可使用本机 SSH key。需要指定私钥时填写本机绝对路径或 `~/.ssh/id_ed25519`，加密私钥另填私钥口令。
@@ -15,6 +17,10 @@
 5. 首次连接默认等待 **5 秒**后自动信任新主机密钥并开始采集，无需逐台点击。若需逐台确认，在「管理机器」中关闭「自动信任新主机密钥」。
 
 运行时不需要安装 Python、Node.js、Go、Docker 或本机 SSH 客户端，不需要互联网。Windows 10/11 的现代浏览器（Edge、Chrome 等）即可。程序目前未做商业代码签名，下载的可执行文件可能触发 Windows SmartScreen；请核对下载来源和发布包校验值。macOS / Linux 也提供可执行包；macOS 包未签名、公证。
+
+在「任务中台」顶部可直接开启「常驻排队清理」，设置重启后保留，无需安装 Python 或敲命令。至少四机排队缺资源时，仅清理经过诊断确认的失败残留；debug 和无法判断的继续等待。同页可查看和下载诊断与清理日志。[规则与边界](docs/experiment-continuations.md#常驻失败残留清理)。
+
+Windows 从旧版升级：由维护者核对并关闭对应旧版启动窗口，再双击新包的 `upgrade.bat`，保留原数据目录及策略。若旧实例仍在线，则只复用旧实例；命名实例和自定义目录需沿用原启动参数。[升级流程](docs/service-lifecycle.md#计划升级或迁移端口)。
 
 ## 一个页面，最多 16 台
 
@@ -80,9 +86,25 @@ pkill -f -- '[t]ilexr'
 
 ## SSH 任务中台
 
+v0.6.0 支持本机 SSH 跳板转发的多机预约：在机器管理中设置物理资源 ID；不同回环端口且 ID 明确不同可独立分配，同一真实节点的所有入口仍互斥。单机预约、整组预留、实验排队、占用显示和重启恢复采用同一判断。使用前发现 `forwarded-resource-identity-v1`，具体固定计划与 Grant 规则见 [整组预留说明](docs/atomic-group-reservations.md)。
+
+v0.6.0 增加 [实验等待与原 AI 对话继续](docs/experiment-continuations.md)：持久化资源等待单、北京时间波谷/周期检查、逐设备 NPU 条件、整组暂留与领取、固定任务 ID 去重、原对话 heartbeat 或已验证宿主的主动 WebSocket 桥接。网页可查看等待原因并暂停/恢复后续工作。真实宿主接续与 A2/A3 实验分别验收，正式实例由维护者明确升级。
+
 本机 API 可为 AI 或脚本在所有 ready 机器中自动调度，也可限定机器或机器组，提交后台 Bash 任务，轮询退出码，读取日志并流式回收最多 10 GiB（10,737,418,240 字节）的压缩结果包。网页使用浏览器原生下载，Skill 分块写盘并校验下载长度，不将整个文件读入内存。首页「任务中台」以全宽机器 / 任务泳道展示全部注册机器：每条任务是带有彩色里程碑的长条，连续等比例时间轴支持滚轮缩放和 Shift + 滚轮平移，从最早记录查看完整历史。任务最新优先，默认仅显示运行中和发送中的任务，切换“全部任务”可查看历史与结果。忙碌和离线机器仍然可见；未知任务可在页面重新探测、读取日志，并在人工核实远端及子进程停止后确认解除占用。任务记录持久化；程序重启后只查询远端状态，不重发命令。`ready` 表示 SSH 监控新鲜且中台空闲，不代表 NPU 空闲或显存足够。
 
-正式发布包内的 [内部 AI 使用指南](AI-START-HERE.md) 可直接交给使用者：解压后启动程序，在浏览器配置机器与查看任务。每个平台的发布包都包含 `skills/cluster-task-controller/` AI Skill 和 [SSH 任务中台标准 SOP](docs/task-controller.md)，使用者无需编译。AI 客户端的规范源仍在独立 `agent-skills` 仓库；发布包携带同一份 Skill 供离线使用。
+正式发布包内的 [内部 AI 使用指南](AI-START-HERE.md) 可直接交给使用者：解压后启动程序，在浏览器配置机器与查看任务。每个平台的发布包都包含 `skills/cluster-task-controller/`、`skills/simplehtmlwatch-netdata/` 和 [SSH 任务中台标准 SOP](docs/task-controller.md)，使用者无需编译。AI Skill 的规范源在独立 `agent-skills` 仓库；发布包携带同一份快照供离线使用。
+
+## 可选 Netdata 系统指标
+
+在“管理机器”中按机器勾选“Netdata 系统指标”，接入已安装在服务器的独立 Agent。右上角“系统指标”查看整机 CPU、内存、磁盘吞吐和网络流量曲线，支持范围选择、指定时间、缩放、平移和联动悬停；任务详情的“运行期间系统指标”按任务观测窗口查询并标记事件。Agent 指标历史独立于本机文本历史，服务器可持续采集。
+
+默认关闭，运行程序仍不需要安装 Netdata。启用机器须支持 Netdata v3 查询 API 和 SSH TCP 转发；后端经 SSH 读取远端 `127.0.0.1`，浏览器仅访问本机服务。端口默认 `19999`，可选 Bearer 令牌随本机配置加密保存，公开配置与导出文件排除令牌，导入后接入默认停止。单项指标失败单独显示，缺失数据保留断点；查询失败会清空旧图。
+
+首版不采集昇腾专属指标、不改变 ready/调度规则。每个窗口请求 360 个平均显示点，跨度最多 7 天；实际历史以 Agent 保留范围为准。接入、内网配置、图表含义及本机 API 见 [Netdata 接入说明](docs/netdata.md)。AI 可用 [系统指标 Skill](skills/simplehtmlwatch-netdata/SKILL.md) 发现实例、列出机器、按机器/任务查询或批量报告失败；它仅使用 Python 标准库。真实 Agent 的可读性与 A3/A2 实验开销分别验收。
+
+### 机器级 NPU 利用率历史
+
+“NPU 利用率”按机器 × 小时并列显示平均算力利用率和整机占用时长比例：任意卡有 NPU 进程就计整机占用，包括算力为零的进程。提供昨天／近 7 个完整自然日、峰值、低负载占比及两项各自覆盖率。复用原有采样，不增加 SSH 命令、不依赖 Netdata 或文本历史。只保存机器级小时桶：保留最近 30 个自然日，独立上限 20 MiB；60 台 × 30 天含占用的合成格式测试约 2.71 MiB。AI 使用 `metricsctl.py utilization` 查询，新版需 `accelerator-utilization-v1` 和 `accelerator-occupancy-v1`。保留旧算力历史，升级前占用及未知进程状态不补空闲；低谷不等于当前资源可部署。口径与接口见 [利用率说明](docs/utilization.md)。
 
 ## 历史记录与回放（方案 C）
 

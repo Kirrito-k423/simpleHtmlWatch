@@ -120,7 +120,7 @@
       <dl class="task-facts"><div><dt>实际机器</dt><dd>${esc(job.machineName || job.selectedMachineId)} · ${esc(job.host || '')}</dd></div><div><dt>远端退出码</dt><dd>${hasExit(job) ? esc(job.exitCode) : '未知'}</dd></div><div><dt>结果包</dt><dd>${esc(archive)}</dd></div><div><dt>创建时间</dt><dd>${esc(full(job.createdAt))}</dd></div><div><dt>结束时间</dt><dd>${esc(full(job.finishedAt))}</dd></div></dl>
       ${job.error ? `<p class="task-problem">${esc(job.error)}</p>` : ''}${job.archiveError ? `<p class="task-problem">结果回收：${esc(job.archiveError)}</p>` : ''}
       ${job.eventsDropped ? `<p class="task-problem">较早的 ${job.eventsDropped} 条状态事件已从任务记录中裁剪。</p>` : ''}
-      <div class="task-detail-actions">${!job.finishedAt && job.status !== 'dispatching' ? '<button data-task-action="probe">重新探测远端状态</button>' : ''}<button data-task-action="logs">读取日志末尾</button>${hasExit(job) && !job.archiveReady ? '<button data-task-action="collect">重试回收</button>' : ''}${job.archiveReady ? '<button data-task-action="download">下载结果包</button>' : ''}</div>
+      <div class="task-detail-actions"><button data-task-action="metrics">运行期间系统指标</button>${!job.finishedAt && job.status !== 'dispatching' ? '<button data-task-action="probe">重新探测远端状态</button>' : ''}<button data-task-action="logs">读取日志末尾</button>${hasExit(job) && !job.archiveReady ? '<button data-task-action="collect">重试回收</button>' : ''}${job.archiveReady ? '<button data-task-action="download">下载结果包</button>' : ''}</div>
       ${job.status === 'unknown' && !job.finishedAt ? '<div class="task-problem">结果未知会保留机器占用。先探测状态、读取日志，并核实远端进程及子进程已停止，再解除本地占用。<button data-task-action="resolve">已核实远端停止，解除占用…</button></div>' : ''}
       ${job.reservationId ? `<p class="task-log-hint">所属预约：${esc(job.reservationId)}。解除任务后，独立预约仍由原调用方管理。</p>` : ''}
       <details><summary>全部里程碑（${timeline.eventsFor(job).length}）</summary><ol class="task-event-list">${timeline.eventsFor(job).map(event => `<li><b>${symbols[event.type] || '◇'} ${esc(labels[event.type] || event.type)}</b><time>${esc(full(event.at))}</time><span>${esc(event.text)}</span></li>`).join('')}</ol></details>
@@ -198,6 +198,7 @@
     if (action === 'resolve' && !window.confirm(`解除任务 ${job.id} 在 ${job.machineName || job.selectedMachineId}（${job.host}）的占用？\n\n仅在你已独立核实远端任务及子进程停止后确认。这不会终止远端进程，也不会把未知退出码记作成功。${job.reservationId ? '\n该任务的独立预约仍由原调用方管理。' : ''}`)) return;
     state.busy = true;
     try {
+      if (action === 'metrics') { window.WatchMetrics.open({taskId:job.id,machineId:job.selectedMachineId}); return; }
       if (action === 'logs') state.logs = {id:job.id, ...await request('/logs?id=' + encodeURIComponent(job.id))};
       if (action === 'probe') {
         const result = await request('/probe?id=' + encodeURIComponent(job.id), 'POST');

@@ -24,6 +24,7 @@ class RemoteGuardTests(unittest.TestCase):
         mock.patch.object(helper.signal,'pidfd_send_signal',self.signal,create=True).start()
         poller=mock.Mock();poller.poll.return_value=[(1,1)]
         mock.patch.object(helper.select,'poll',return_value=poller,create=True).start()
+    @unittest.skipUnless(hasattr(os, 'O_DIRECTORY'), 'Linux remote helper requires POSIX directory fsync')
     def test_term_only_after_durable_intent_and_never_replay(self):
         def sent(*args):
             p=Path(self.temp.name)/'.simplehtmlwatch/cleanup'/(self.request['id']+'.json')
@@ -98,6 +99,9 @@ class InspectionTests(unittest.TestCase):
         self.addCleanup(mock.patch.stopall)
         mock.patch.object(helper,'Path',side_effect=mapped).start()
         mock.patch.object(helper,'npu_output',return_value='synthetic NPU fixture').start()
+        # The /proc fixture represents a Linux host, including its clock ticks.
+        # Windows controllers do not expose os.sysconf; no real host clock is used.
+        mock.patch.object(helper.os,'sysconf',return_value=100,create=True).start()
     def make_proc(self,pid,ppid):
         p=self.proc/str(pid);p.mkdir();fields=['0']*30;fields[0]='S';fields[1]=str(ppid);fields[19]='100';fields[11]='10';fields[12]='10'
         (p/'stat').write_text(str(pid)+' (python worker) '+' '.join(fields));(p/'cmdline').write_bytes(b'python\0-c\0from multiprocessing.forkserver import main;main()\0')

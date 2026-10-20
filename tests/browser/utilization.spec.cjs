@@ -7,7 +7,7 @@ function utilizationFixture(period){
   const days=period==='week'?7:1,after=period==='today'?today:today-days*86400;
   const hours=Array.from({length:days*24},(_,i)=>({at:after+i*3600,mean:i===0?0:2,peak:9,lowPercent:100,coveragePercent:i===0?50:100,observedSeconds:3600,samples:360,occupiedPercent:i===1?null:i===0?100:0,occupancyCoveragePercent:i===1?0:i===0?50:100,occupancyObservedSeconds:i===1?0:3600}));
   const pattern=hours.slice(0,24).map((h,i)=>({...h,at:i}));
-  return {source:'npu-smi',timeZone:'Asia/Shanghai',after,before:after+days*86400,generatedAt:new Date().toISOString(),retentionDays:30,bytes:4096,limitBytes:20*1048576,machines:[
+  return {source:'npu-smi',timeZone:'Asia/Shanghai',after,before:after+days*86400,generatedAt:new Date().toISOString(),retentionDays:30,bytes:4096,limitBytes:2000000,machines:[
     {id:'machine-00',name:'机器 <测试>',group:'A5',model:'Ascend950DT',metric:'NPU Util(%)',mean:2,coveragePercent:95,occupiedPercent:10,occupancyCoveragePercent:90,hours,hourOfDay:pattern,lowWindows:[{after:after+3600,before:after+3*3600}]},
     {id:'machine-01',name:'尚无数据',mean:null,coveragePercent:0,occupiedPercent:null,occupancyCoveragePercent:0,hours:hours.map(h=>({...h,mean:null,peak:null,lowPercent:null,coveragePercent:0,samples:0,occupiedPercent:null,occupancyCoveragePercent:0,occupancyObservedSeconds:0})),hourOfDay:pattern.map(h=>({...h,mean:null,peak:null,lowPercent:null,coveragePercent:0,occupiedPercent:null,occupancyCoveragePercent:0,occupancyObservedSeconds:0})),lowWindows:[]}
   ]};
@@ -31,7 +31,7 @@ test('NPU 小时汇总：零与缺失、周规律、明细、CSV、失败与窄�
   await expect(first.nth(2).locator('.util-value').nth(1)).toHaveText('占用 0.0%');
   await expect(page.locator('.util-partial')).toHaveCount(2);
   await expect(page.locator('.utilization-table tbody tr').nth(1).locator('td').first()).toHaveText('算力 —占用 —');
-  await expect(page.locator('#utilization-storage')).toContainText('/ 20 MiB');
+  await expect(page.locator('#utilization-storage')).toContainText('/ 1.91 MiB');
   await page.locator('[data-util-machine="0"]').click();
   await expect(page.locator('#utilization-detail tbody tr')).toHaveCount(24);
   await expect(page.locator('#utilization-detail h3')).toContainText('机器 <测试>');

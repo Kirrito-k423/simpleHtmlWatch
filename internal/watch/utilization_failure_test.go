@@ -32,7 +32,7 @@ func TestUtilizationMissingModelAndPersistFailure(t *testing.T) {
 	if err := u.Flush(); err != nil {
 		t.Fatal(err)
 	}
-	file := filepath.Join(dir, "utilization", "2026-10-09.json")
+	file := filepath.Join(dir, "utilization", "2026-10-09.json.gz")
 	raw, _ := os.ReadFile(file)
 	if err := os.WriteFile(file, []byte("corrupt"), 0600); err != nil {
 		t.Fatal(err)

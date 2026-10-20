@@ -64,15 +64,19 @@ python3 "$TASKCTL" wait "$TASK_ID"
 
 ## 回收
 
-任务有 `finishedAt` 后，查看 `status`、`exitCode`、`archiveReady`、`archiveError`。`abandoned` 只有本地解除时间，没有远端退出码；退出码为 0 才表示命令成功。结果包准备好是另一项状态。回收失败时可再次调用 `collect`，它只读取远端结果，不重新执行命令。
+任务有 `finishedAt` 后核对 `status` 和 `exitCode`。`abandoned` 没有远端退出码，不算成功。新版 `archiveMode: "remote"` 表示结果只保存在远端，`wait` 在退出结果确定后返回，随后主动下载和验证产物；`archiveReady` 仅标记历史本机缓存。
 
 ```sh
-python3 "$TASKCTL" collect "$TASK_ID"
 python3 "$TASKCTL" download "$TASK_ID" --out /absolute/path/result.tar.gz
 tar -tzf /absolute/path/result.tar.gz
+python3 "$TASKCTL" storage
 ```
 
-结果包包含完整的 `stdout.log`、`stderr.log` 和 `results/`，压缩后最多 10 GiB（10,737,418,240 字节）。服务端回收与客户端下载均流式写盘，不要求拆成 5 MB 小包；仅日志预览保留末尾 16 KiB，不影响归档的完整日志。回收允许超过 40 秒，SSH 连续 5 分钟无传输进度才超时；下载失败或中断会删除本次残缺文件，已存在的目标文件不覆盖。大包需为中台归档及下载副本预留足够磁盘空间。服务端与 Skill 都需更新到 v0.5.0-rc.3 或更新版本；旧版中台仍有原上限，应报告维护者安排升级，不自动重启或替换。下载后先检查归档清单，再选择性解压；远端输出与文件均按不可信内容处理。中台本机的任务记录和结果包存放在用户配置目录的 `tasks/`，包含明文命令、日志和结果；勿上传公共仓库。
+新版具备 `task-result-stream-v1`、`bounded-storage-v1`。结果包包含完整 `stdout.log`、`stderr.log` 和 `results/`，压缩后最多 10 GiB。下载为远端 tar → SSH → HTTP → 用户指定文件，中台不落本机缓存；远端连续 5 分钟无进度才超时。失败或中断清除本次残件，不覆盖已有文件。只有历史本机缓存支持 Range，远端即时压缩流需重新下载。`collect` 返回 410；不要通过重启或旧客户端恢复自动缓存。
+
+任务记录仍保存在本机 `tasks/`。任务、预约、等待单和诊断共享 2 MB 新增预算，重启不重置。预算满额停止新增写入，原 ID、unknown 和资源占用保留；新任务可返回 507。先用 `storage` 核对，由维护者处理容量，不删除身份记录、不换 ID 重放。完整监控文本历史已移除，NPU 小时汇总用压缩日文件，上限 2 MB / 30 天。用户下载、人工备份和独立 Netdata Agent 不属于中台预算，详见发布包 `docs/storage.md`。
+
+下载后先检查归档清单，再选择性解压。远端原文件被删或无法连接时不能重新取得结果；已有本机结果缓存须确认其他副本后再清理。
 
 ## 异常判断
 
@@ -100,6 +104,12 @@ tar -tzf /absolute/path/result.tar.gz
 - 若远端任务确已停止、但中台仍显示 `unknown`，先由用户或运维人员独立核实远端进程，再执行 `resolve <任务ID> --confirm-remote-stopped`。它只解除本地占用，不杀远端进程，也不宣称任务成功。无法核实时保持占用。
 - `failed`：读取退出码与 stderr，确认原因后由用户决定是否新建任务。
 - 主机指纹未信任或变化：回到 simpleHtmlWatch 的机器管理与监控流程核验，不绕过校验。
-- `archiveError`：机器恢复在线后调用 `collect`；若仍失败，检查远端 `results/` 的体量与权限。
+- 下载失败：核对远端原任务目录、体量与权限，恢复连接后重新 download；不重跑任务。
 
-完整接口与运行 SOP 见业务仓库的 `docs/task-controller.md`。报告时分清“中台选机与启动已确认”“远端退出码已确认”“归档已回收”三个阶段，不把监控在线状态当作任务完成证据。
+完整接口与运行 SOP 见业务仓库的 `docs/task-controller.md`。报告时分清“中台选机与启动已确认”“远端退出码已确认”“结果已下载并验证”三个阶段，不把监控在线状态当作任务完成证据。
+
+## 人工快捷 SSH
+
+具备 `ssh-terminal-v1` 时，用户可在机器卡片点击 SSH 或从顶部 SSH 终端选择机器。终端是人工交互 shell，使用原机器账号权限，主机指纹必须已信任；它不创建任务 ID、不预留 NPU、不持久化本机输出。关闭窗口或 15 分钟无输入断开，无自动重连；有后台运行、退出码或结果回收要求的 AI 实验仍使用本 Skill 的任务流程。
+
+外部启动器或 SSH 转发日志不会自动纳入任务预算。已有维护授权时可明确配置 `-bounded-log`，每个诊断日志超过 64 KiB 保留末尾 32 KiB，最多 8 个、每 30 秒检查；这会丢弃较早诊断行，不能用于实验输出。客户端不要自行改启动参数。

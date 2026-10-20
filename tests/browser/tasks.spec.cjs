@@ -47,12 +47,20 @@ test('任务中台：全宽机器泳道、线性缩放、原生下载与未知�
   await page.locator('.task-row-title[data-task-id="history-00"]').click();
   await expect(page.locator('#task-detail')).toContainText('history-00');
   await expect(page.locator('#task-detail')).toContainText('全部里程碑（4）');
+  // Inspect while the download popup is still paused at the request. Chrome
+  // can close that popup before a later allHeaders() RPC reaches its target.
+  let downloadHeaders;
+  await page.context().route('**/api/tasks/archive?*', async route => {
+    downloadHeaders = await route.request().allHeaders();
+    await route.continue();
+  });
   const requestPromise = page.context().waitForEvent('request', request => request.url().includes('/api/tasks/archive'));
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button',{name:'下载结果包',exact:true}).click();
   const request = await requestPromise;
   expect(request.method()).toBe('POST');
-  const headers = await request.allHeaders();
+  await expect.poll(() => downloadHeaders).not.toBeUndefined();
+  const headers = downloadHeaders;
   expect(headers.origin).toBe('http://127.0.0.1:18767');
   expect(request.url()).not.toContain('token');
   const download = await downloadPromise;

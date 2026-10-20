@@ -48,7 +48,6 @@ type State struct {
 }
 type Monitor struct {
 	utilization    *Utilization
-	history        *History
 	mu             sync.RWMutex
 	states         map[string]State
 	triggers       map[string]chan struct{}
@@ -59,7 +58,6 @@ type Monitor struct {
 	commandTimeout time.Duration
 }
 
-func (m *Monitor) SetHistory(h *History)         { m.history = h }
 func (m *Monitor) SetUtilization(u *Utilization) { m.utilization = u }
 
 func NewMonitor(t *TrustStore) *Monitor {
@@ -173,24 +171,7 @@ func (m *Monitor) worker(ctx context.Context, host Machine, profile Profile, sel
 		case m.slots <- struct{}{}:
 		}
 		start := time.Now()
-		epoch, recording := uint64(0), false
-		if m.history != nil {
-			epoch, recording = m.history.Epoch()
-		}
 		sampleCommands := append([]Command{}, selected...)
-		if recording {
-			hasNPU := false
-			for _, cmd := range selected {
-				if cmd.ID == "npu" {
-					hasNPU = true
-				}
-			}
-			if !hasNPU {
-				cmd, _ := commandByID("npu")
-				sampleCommands = append(sampleCommands, cmd)
-			}
-			sampleCommands = append(sampleCommands, Command{ID: "history-ps", Name: "完整 ps -ef", Shell: "ps -ef"}, Command{ID: "history-cwd", Name: "进程工作目录", Shell: cwdCommand})
-		}
 		s := State{MachineID: host.ID, Status: "online", Results: []Result{}, LastSuccess: last}
 		addr := net.JoinHostPort(host.Host, strconv.Itoa(host.Port))
 		var err error
@@ -250,9 +231,6 @@ func (m *Monitor) worker(ctx context.Context, host Machine, profile Profile, sel
 		live := s
 		live.Results = make([]Result, 0, len(s.Results))
 		for _, result := range s.Results {
-			if strings.HasPrefix(result.CommandID, "history-") {
-				continue
-			}
 			// The resource gate consumes raw NPU stdout from the live Snapshot.
 			if result.CommandID != "npu" {
 				result.Stdout = ""
@@ -263,9 +241,6 @@ func (m *Monitor) worker(ctx context.Context, host Machine, profile Profile, sel
 		m.put(ctx, live)
 		if m.utilization != nil && ctx.Err() == nil {
 			m.utilization.Observe(host, s, interval)
-		}
-		if recording && ctx.Err() == nil {
-			m.history.Append(epoch, HistoryRecord{MachineID: host.ID, MachineName: host.Name, Host: host.Host, StartedAt: start, State: s})
 		}
 		<-m.slots
 		// Retry at the trust deadline even when the sampling interval is much longer.

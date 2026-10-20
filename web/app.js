@@ -12,7 +12,7 @@ let pageCount = 0, paginationKey = '';
 try { rotation.setSeconds(Number(localStorage.getItem('watch.pageRotation'))); } catch { /* Optional browser preference. */ }
 $('#auto-page').value = String(rotation.seconds);
 function rotationBlocked() {
-  return document.body.classList.contains("history-mode") || paused || busy || document.hidden || !!$('dialog[open]') || !!document.activeElement?.matches('input,textarea');
+  return paused || busy || document.hidden || !!$('dialog[open]') || !!document.activeElement?.matches('input,textarea');
 }
 function renderRotationStatus() {
   $('#rotation-status').textContent = !rotation.seconds ? '' : pageCount <= 1 ? '无需翻页' : rotationBlocked() ? '翻页已暂停' : `${rotation.remaining()}s 后翻页`;
@@ -156,9 +156,10 @@ function render() {
     $('#grid').replaceChildren();
     for (const m of visible) {
       const card = document.createElement('article'); card.className = 'machine-card'; card.dataset.id = m.id;
-      card.innerHTML = '<div class="card-head"><span class="card-name"></span><span class="host"></span><span class="group"></span><span class="badge" tabindex="0"></span><button class="trust-action" title="核对 SSH 主机指纹" hidden>指纹</button><button class="expand" title="放大机器输出" aria-label="放大机器输出">↗</button></div><pre class="card-output" tabindex="0"></pre>';
+      card.innerHTML = '<div class="card-head"><span class="card-name"></span><span class="host"></span><span class="group"></span><span class="badge" tabindex="0"></span><button class="trust-action" title="核对 SSH 主机指纹" hidden>指纹</button><button class="ssh-action" title="打开 SSH 终端" aria-label="打开 SSH 终端">SSH</button><button class="expand" title="放大机器输出" aria-label="放大机器输出">↗</button></div><pre class="card-output" tabindex="0"></pre>';
       $('.expand', card).onclick = () => openDetail(m.id);
       $('.trust-action', card).onclick = () => openTrust(m.id);
+      $('.ssh-action', card).onclick = () => window.openSSH(m.id);
       $('#grid').append(card);
     }
   }
@@ -185,6 +186,7 @@ function render() {
     $('.host', card).title = `${m.host}:${m.port}`;
     $('.group', card).title = m.group || '未分组';
     $('.trust-action', card).hidden = s.status !== 'untrusted' || demo;
+    $('.ssh-action', card).disabled = demo || !m.enabled;
   }
   $('#page-info').textContent = filtered.length ? `${page * size + 1}–${Math.min((page + 1) * size, filtered.length)} / ${filtered.length} 台 · 第 ${page + 1} / ${Math.ceil(filtered.length / size)} 页` : '0 台机器';
   $('#prev-btn').disabled = page === 0; $('#next-btn').disabled = (page + 1) * size >= filtered.length;

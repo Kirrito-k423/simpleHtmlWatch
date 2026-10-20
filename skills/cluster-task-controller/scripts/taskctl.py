@@ -377,6 +377,7 @@ def main():
     ready.add_argument("--group")
     ready.add_argument("--machine")
     sub.add_parser("machines", help="列出机器入口、物理资源标识和占用原因")
+    sub.add_parser("storage", help="只读查看持久化元数据增长预算")
     reservations = sub.add_parser("reservations", help="只读查询预约，写请求不确定时查询原 ID")
     reservations.add_argument("--id")
     reserve = sub.add_parser("reserve", help="按固定请求文件预约单机或原子整组，不启动远端任务")
@@ -395,7 +396,7 @@ def main():
     submit.add_argument("--reservation-grant", help="整组预约返回的固定 grantId")
     submit.add_argument("--reservation-generation", type=int, default=0)
     for action in ("status", "logs", "collect", "resolve", "download", "wait"):
-        p = sub.add_parser(action, help={"status": "查看任务状态", "logs": "读取日志末尾", "collect": "重试回收结果", "resolve": "人工确认后解除未知任务占用", "download": "下载结果包", "wait": "轮询直到完成"}[action])
+        p = sub.add_parser(action, help={"status": "查看任务状态", "logs": "读取日志末尾", "collect": "已移除；请用 download", "resolve": "人工确认后解除未知任务占用", "download": "下载结果包", "wait": "轮询直到完成"}[action])
         p.add_argument("id")
         if action == "resolve":
             p.add_argument("--confirm-remote-stopped", action="store_true", help="确认已独立核实远端进程停止")
@@ -454,6 +455,9 @@ def main():
             raise ValueError("ready 只能指定一个选择器")
         query = urllib.parse.urlencode({"group": args.group or "", "machineId": args.machine or ""})
         show(client.api("/ready?" + query))
+    elif args.action == "storage":
+        client.capabilities.add("bounded-storage-v1")
+        show(client.api("/storage"))
     elif args.action == "machines":
         show(client.api("/machines"))
     elif args.action == "submit":
@@ -503,8 +507,8 @@ def main():
             if summary != last:
                 show(job)
                 last = summary
-            if job.get("finishedAt") and (job.get("archiveReady") or job.get("archiveError") or job.get("exitCode") is None):
-                return 0 if job.get("status") == "succeeded" and job.get("archiveReady") else 1
+            if job.get("finishedAt") and (job.get("archiveMode") == "remote" or job.get("archiveReady") or job.get("archiveError") or job.get("exitCode") is None):
+                return 0 if job.get("status") == "succeeded" and (job.get("archiveMode") == "remote" or job.get("archiveReady")) else 1
             time.sleep(args.interval)
     elif args.action == "download":
         path = os.path.abspath(args.out)

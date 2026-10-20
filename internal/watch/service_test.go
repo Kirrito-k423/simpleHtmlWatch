@@ -23,6 +23,11 @@ func TestNetdataDiscoveryCapability(t *testing.T) {
 	if !slices.Contains(lease.Info.Capabilities, "accelerator-occupancy-v1") {
 		t.Fatal("missing occupancy capability")
 	}
+	for _, capability := range []string{"bounded-storage-v1", "task-result-stream-v1", "ssh-terminal-v1"} {
+		if !slices.Contains(lease.Info.Capabilities, capability) {
+			t.Fatalf("missing storage capability %s", capability)
+		}
+	}
 }
 
 func TestLegacyLockOwnerIsNeverTakenOver(t *testing.T) {

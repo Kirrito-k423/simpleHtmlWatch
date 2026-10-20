@@ -217,14 +217,14 @@ func (m *TaskManager) continuationSnapshotLocked() map[string]Continuation {
 }
 
 func (m *TaskManager) saveContinuationsLocked(next map[string]Continuation) error {
-	b, err := json.MarshalIndent(continuationStore{continuationStoreSchema, next}, "", "  ")
+	b, err := json.Marshal(continuationStore{continuationStoreSchema, next})
 	if err != nil {
 		return err
 	}
 	if len(b) > continuationStoreLimit {
 		return errors.New("CONTINUATION_STORE_TOO_LARGE")
 	}
-	if err := writeAtomic(filepath.Join(m.dir, "continuations.json"), b); err != nil {
+	if err := m.budget.Write(filepath.Join(m.dir, "continuations.json"), b, 0); err != nil {
 		return err
 	}
 	m.continuations = next
@@ -664,8 +664,8 @@ func (m *TaskManager) ReportContinuation(r ContinuationReport) (Continuation, in
 		}
 		for _, task := range c.Tasks {
 			job := m.jobs[task.ID]
-			if job == nil || job.ContinuationID != c.ID || job.GrantID != c.GrantID || job.FinishedAt == nil || job.ExitCode == nil || !job.ArchiveReady {
-				return Continuation{}, 409, fmt.Errorf("TASK_NOT_FINISHED_AND_COLLECTED:%s", task.ID)
+			if job == nil || job.ContinuationID != c.ID || job.GrantID != c.GrantID || job.FinishedAt == nil || job.ExitCode == nil {
+				return Continuation{}, 409, fmt.Errorf("TASK_NOT_FINISHED:%s", task.ID)
 			}
 		}
 		c.State, c.Outcome, c.Evidence = "completed", r.Outcome, r.Evidence

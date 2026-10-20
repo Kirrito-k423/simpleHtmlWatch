@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // TaskRequest describes one durable remote task. With no selector, any ready
@@ -51,19 +53,42 @@ type TaskJob struct {
 	Error             string      `json:"error,omitempty"`
 	ArchiveReady      bool        `json:"archiveReady"`
 	ArchiveError      string      `json:"archiveError,omitempty"`
+	ArchiveMode       string      `json:"archiveMode,omitempty"`
 	Events            []TaskEvent `json:"events,omitempty"`
 	EventsDropped     int         `json:"eventsDropped,omitempty"`
 }
 
 func taskEvent(job *TaskJob, at time.Time, kind, message string) {
+	message = taskText(message)
 	events := make([]TaskEvent, len(job.Events), len(job.Events)+1)
 	copy(events, job.Events)
 	events = append(events, TaskEvent{At: at, Type: kind, Text: message})
-	if len(events) > 512 {
-		job.EventsDropped += len(events) - 512
-		events = append(events[:1], events[len(events)-511:]...)
+	if len(events) > 32 {
+		job.EventsDropped += len(events) - 32
+		events = append(events[:1], events[len(events)-31:]...)
 	}
 	job.Events = events
+}
+
+func taskText(s string) string {
+	truncated := false
+	if len(s) > 1024 {
+		s, truncated = s[:1024], true
+	}
+	for {
+		for !utf8.ValidString(s) {
+			s = s[:len(s)-1]
+		}
+		encoded, _ := json.Marshal(s)
+		if len(encoded) <= 1024 {
+			break
+		}
+		s, truncated = s[:len(s)*3/4], true
+	}
+	if truncated {
+		return s + "…"
+	}
+	return s
 }
 
 func copyTask(job *TaskJob) TaskJob {
@@ -102,7 +127,7 @@ type taskRemote interface {
 	Launch(context.Context, TaskJob, Profile) error
 	Probe(context.Context, TaskJob, Profile) (string, error)
 	Logs(context.Context, TaskJob, Profile) (TaskLogs, error)
-	Collect(context.Context, TaskJob, Profile, string) error
+	Stream(context.Context, TaskJob, Profile, io.Writer) error
 }
 
 type TaskLogs struct {
@@ -125,7 +150,7 @@ type TaskManager struct {
 	store                *Store
 	monitor              *Monitor
 	remote               taskRemote
-	collecting           map[string]bool
+	budget               *storageBudget
 	ctx                  context.Context
 	cancel               context.CancelFunc
 	wg                   sync.WaitGroup
@@ -142,7 +167,12 @@ func newTaskManager(store *Store, monitor *Monitor, remote taskRemote) (*TaskMan
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	m := &TaskManager{dir: dir, jobs: map[string]*TaskJob{}, collecting: map[string]bool{}, store: store, monitor: monitor, remote: remote, ctx: ctx, cancel: cancel, poll: 5 * time.Second, now: time.Now}
+	budget, err := newStorageBudget(dir)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	m := &TaskManager{dir: dir, jobs: map[string]*TaskJob{}, budget: budget, store: store, monitor: monitor, remote: remote, ctx: ctx, cancel: cancel, poll: 5 * time.Second, now: time.Now}
 	if err := m.loadCleanup(); err != nil {
 		cancel()
 		return nil, err
@@ -199,6 +229,10 @@ func newTaskManager(store *Store, monitor *Monitor, remote taskRemote) (*TaskMan
 			cancel()
 			return nil, err
 		}
+		job.ArchiveMode = "remote"
+		if job.FinishedAt == nil {
+			budget.reserves[m.path(job.ID, "job.json")] = taskCompletionReserve
+		}
 		if job.Status == "dispatching" {
 			job.Status = "unknown" // A crash may have happened after SSH accepted the launch.
 			job.Error = "启动过程被中断；只查询远端状态，不自动重发命令"
@@ -215,9 +249,6 @@ func newTaskManager(store *Store, monitor *Monitor, remote taskRemote) (*TaskMan
 		if job.FinishedAt == nil {
 			m.wg.Add(1)
 			go m.follow(id, false)
-		} else if !job.ArchiveReady && job.ExitCode != nil {
-			m.wg.Add(1)
-			go func(id string) { defer m.wg.Done(); _, _ = m.Collect(id) }(id)
 		}
 	}
 	return m, nil
@@ -228,11 +259,21 @@ func (m *TaskManager) Close() { m.cancel(); m.wg.Wait() }
 func (m *TaskManager) path(id, name string) string { return filepath.Join(m.dir, id, name) }
 
 func (m *TaskManager) save(job *TaskJob) error {
-	b, err := json.MarshalIndent(job, "", "  ")
+	job.Error, job.ArchiveError = taskText(job.Error), taskText(job.ArchiveError)
+	b, err := json.Marshal(job)
 	if err != nil {
 		return err
 	}
-	return writeAtomic(m.path(job.ID, "job.json"), b)
+	reserve := int64(0)
+	if job.FinishedAt == nil {
+		base := *job
+		base.Events, base.Error, base.ArchiveError = nil, "", ""
+		raw, _ := json.Marshal(base)
+		// Consume the pre-reserved envelope as events grow, rather than
+		// demanding another 64 KiB on every active-state update.
+		reserve = max(0, storageCharge(int64(len(raw)))+taskCompletionReserve-storageCharge(int64(len(b))))
+	}
+	return m.budget.Write(m.path(job.ID, "job.json"), b, reserve)
 }
 
 func (m *TaskManager) Get(id string) (TaskJob, bool) {
@@ -372,8 +413,12 @@ func (m *TaskManager) Submit(request TaskRequest) (TaskJob, int, error) {
 		}
 	}
 	now := time.Now()
-	job := &TaskJob{TaskRequest: request, SelectedMachineID: selected.ID, ResourceKey: machineResource(host), MachineName: selected.Name, Host: host.Host, Port: host.Port, Username: username, Status: "dispatching", CreatedAt: now, UpdatedAt: now}
+	job := &TaskJob{TaskRequest: request, SelectedMachineID: selected.ID, ResourceKey: machineResource(host), MachineName: selected.Name, Host: host.Host, Port: host.Port, Username: username, Status: "dispatching", CreatedAt: now, UpdatedAt: now, ArchiveMode: "remote"}
 	taskEvent(job, now, "dispatching", "任务已受理，分配至 "+selected.Name)
+	encoded, _ := json.Marshal(job)
+	if err := m.budget.Check(m.path(job.ID, "job.json"), encoded, taskCompletionReserve); err != nil {
+		return TaskJob{}, 507, err
+	}
 	if err := m.continuationIntentLocked(request); err != nil {
 		return TaskJob{}, 500, err
 	}
@@ -384,6 +429,7 @@ func (m *TaskManager) Submit(request TaskRequest) (TaskJob, int, error) {
 		return TaskJob{}, 500, err
 	}
 	if err := m.save(job); err != nil {
+		_ = os.Remove(m.path(job.ID, "")) // Only the empty directory created by this submit.
 		return TaskJob{}, 500, err
 	}
 	m.jobs[job.ID] = job
@@ -530,13 +576,9 @@ func (m *TaskManager) follow(id string, launch bool) {
 		}
 		job, _ = m.Get(id)
 		if job.FinishedAt != nil {
-			if job.ExitCode != nil && !job.ArchiveReady {
-				_, _ = m.Collect(id)
-			}
 			return
 		}
 		if m.probe(id) {
-			_, _ = m.Collect(id)
 			return
 		}
 	}
@@ -593,48 +635,23 @@ func (m *TaskManager) Logs(id string) (TaskLogs, error) {
 	return m.remote.Logs(m.ctx, job, profile)
 }
 
-func (m *TaskManager) Collect(id string) (TaskJob, error) {
-	m.mu.Lock()
-	job, ok := m.jobs[id]
+// StreamArchive only reads an existing remote task; it never caches results in
+// the service directory or executes the task again. The request owns cancellation.
+func (m *TaskManager) StreamArchive(ctx context.Context, id string, out io.Writer) error {
+	job, ok := m.Get(id)
 	if !ok {
-		m.mu.Unlock()
-		return TaskJob{}, os.ErrNotExist
+		return os.ErrNotExist
 	}
-	if job.FinishedAt == nil {
-		m.mu.Unlock()
-		return TaskJob{}, errors.New("任务尚未完成")
+	if job.FinishedAt == nil || job.ExitCode == nil {
+		return errors.New("远端退出结果尚未确认")
 	}
-	if job.ExitCode == nil {
-		m.mu.Unlock()
-		return TaskJob{}, errors.New("远端退出结果未知，不能自动回收")
+	profile, err := m.profile(job, false)
+	if err != nil {
+		return err
 	}
-	if job.ArchiveReady {
-		if _, err := os.Stat(m.path(id, "result.tar.gz")); err == nil {
-			out := copyTask(job)
-			m.mu.Unlock()
-			return out, nil
-		}
-		job.ArchiveReady = false
-	}
-	if m.collecting[id] {
-		m.mu.Unlock()
-		return TaskJob{}, errors.New("结果包正在回收")
-	}
-	m.collecting[id] = true
-	copy := copyTask(job)
-	m.mu.Unlock()
-	defer func() { m.mu.Lock(); delete(m.collecting, id); m.mu.Unlock() }()
-	profile, err := m.profile(copy, false)
-	if err == nil {
-		err = m.remote.Collect(m.ctx, copy, profile, m.path(id, "result.tar.gz"))
-	}
-	m.update(id, func(j *TaskJob) {
-		j.ArchiveReady = err == nil
-		j.ArchiveError = ""
-		if err != nil {
-			j.ArchiveError = err.Error()
-		}
-	})
-	out, _ := m.Get(id)
-	return out, err
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stop := context.AfterFunc(m.ctx, cancel)
+	defer stop()
+	return m.remote.Stream(ctx, job, profile, out)
 }

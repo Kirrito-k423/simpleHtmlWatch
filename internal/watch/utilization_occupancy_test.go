@@ -139,7 +139,7 @@ func TestOccupancyLegacyHistoryPreservedWithoutBackfill(t *testing.T) {
 	if err := u.Flush(); err != nil {
 		t.Fatal(err)
 	}
-	raw, _ := os.ReadFile(file)
+	raw := readUtilizationBytes(t, file+".gz")
 	var disk struct {
 		Version int                  `json:"v"`
 		Hours   map[string][][]int64 `json:"h"`

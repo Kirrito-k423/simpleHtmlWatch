@@ -1,19 +1,23 @@
 package watch
 
 import (
+	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
 
 const utilizationRetention = 30
-const utilizationLimit int64 = 20 * 1024 * 1024
+const utilizationLimit int64 = 2_000_000
 const utilizationDayLimit = 2 * 1024 * 1024
 
 var chinaTime = time.FixedZone("Asia/Shanghai", 8*60*60)
@@ -118,7 +122,7 @@ func newUtilization(dir string, now func() time.Time) (*Utilization, error) {
 	if err := u.pruneLocked(); err != nil {
 		return nil, err
 	}
-	files, err := filepath.Glob(filepath.Join(u.dir, "????-??-??.json"))
+	files, err := u.files()
 	if err != nil {
 		return nil, err
 	}
@@ -134,16 +138,41 @@ func newUtilization(dir string, now func() time.Time) (*Utilization, error) {
 		if err != nil {
 			return nil, err
 		}
+		if strings.HasSuffix(file, ".gz") {
+			reader, err := gzip.NewReader(bytes.NewReader(raw))
+			if err != nil {
+				return nil, err
+			}
+			raw, err = io.ReadAll(io.LimitReader(reader, utilizationDayLimit+1))
+			reader.Close()
+			if err != nil || len(raw) > utilizationDayLimit {
+				return nil, fmt.Errorf("利用率压缩日文件无效：%s", filepath.Base(file))
+			}
+		}
 		var day utilizationDay
 		if err = json.Unmarshal(raw, &day); err != nil {
 			return nil, fmt.Errorf("利用率日文件损坏：%s", filepath.Base(file))
 		}
-		if err = validateUtilizationDay(day, filepath.Base(file)); err != nil {
+		if err = validateUtilizationDay(day, strings.TrimSuffix(filepath.Base(file), ".gz")); err != nil {
 			return nil, err
 		}
 		u.days[day.Date] = &day
 	}
 	return u, nil
+}
+
+func (u *Utilization) files() ([]string, error) {
+	plain, err := filepath.Glob(filepath.Join(u.dir, "????-??-??.json"))
+	if err != nil {
+		return nil, err
+	}
+	compressed, err := filepath.Glob(filepath.Join(u.dir, "????-??-??.json.gz"))
+	if err != nil {
+		return nil, err
+	}
+	files := append(plain, compressed...)
+	sort.Strings(files)
+	return files, nil
 }
 
 func validateUtilizationDay(day utilizationDay, filename string) error {
@@ -322,7 +351,7 @@ func (u *Utilization) Reset() {
 }
 
 func (u *Utilization) pruneLocked() error {
-	files, err := filepath.Glob(filepath.Join(u.dir, "????-??-??.json"))
+	files, err := u.files()
 	if err != nil {
 		return err
 	}
@@ -405,7 +434,16 @@ func (u *Utilization) flushLocked() error {
 		if len(raw) > utilizationDayLimit {
 			return fmt.Errorf("利用率日文件超过 2 MiB，停止写入；实时监控继续")
 		}
-		file := filepath.Join(u.dir, date+".json")
+		var packed bytes.Buffer
+		zipper := gzip.NewWriter(&packed)
+		if _, err = zipper.Write(raw); err != nil {
+			return err
+		}
+		if err = zipper.Close(); err != nil {
+			return err
+		}
+		raw = packed.Bytes()
+		file := filepath.Join(u.dir, date+".json.gz")
 		var previous int64
 		if info, err := os.Stat(file); err == nil {
 			previous = info.Size()
@@ -414,14 +452,14 @@ func (u *Utilization) flushLocked() error {
 		}
 		// Reserve space for the atomic replacement too, not only the final file.
 		for u.bytes+int64(len(raw)) > u.limit {
-			files, err := filepath.Glob(filepath.Join(u.dir, "????-??-??.json"))
+			files, err := u.files()
 			if err != nil {
 				return err
 			}
 			sort.Strings(files)
 			removed := false
 			for _, old := range files {
-				if old >= file {
+				if filepath.Base(old)[:10] >= date {
 					continue
 				}
 				info, err := os.Stat(old)
@@ -446,6 +484,15 @@ func (u *Utilization) flushLocked() error {
 			return err
 		}
 		u.bytes += int64(len(raw)) - previous
+		legacy := filepath.Join(u.dir, date+".json")
+		if info, err := os.Stat(legacy); err == nil {
+			if err = os.Remove(legacy); err != nil {
+				return err
+			}
+			u.bytes -= info.Size()
+		} else if !os.IsNotExist(err) {
+			return err
+		}
 		delete(u.dirty, date)
 	}
 	return nil

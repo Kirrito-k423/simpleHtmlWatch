@@ -97,7 +97,7 @@ func TestTaskDashboardBrowserFixture(t *testing.T) {
 	defer listener.Close()
 	app := NewServer(store, monitor, nil, assets, listener.Addr().String())
 	app.tasks = m
-	app.SetServiceInfo(ServiceInfo{Schema: ServiceSchema, APIVersion: ServiceAPIVersion, ServiceID: "browser-fixture-service", RunID: "browser-fixture", Version: "browser-fixture", BuildID: "fixture", Instance: "test", Capabilities: []string{"tasks", "experiment-continuations-v1", "queue-residue-cleanup-v1"}})
+	app.SetServiceInfo(ServiceInfo{Schema: ServiceSchema, APIVersion: ServiceAPIVersion, ServiceID: "browser-fixture-service", RunID: "browser-fixture", Version: "browser-fixture", BuildID: "fixture", Instance: "test", Capabilities: []string{"tasks", "experiment-continuations-v1", "queue-residue-cleanup-v1", "ssh-terminal-v1"}})
 	defer app.Close()
 	t.Log("synthetic dashboard fixture: http://127.0.0.1:18767/?tasks=1")
 	server := &http.Server{Handler: app, ReadHeaderTimeout: 5 * time.Second}

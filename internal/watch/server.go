@@ -12,21 +12,22 @@ import (
 )
 
 type Server struct {
-	metrics  *Metrics
-	service  *ServiceInfo
-	executor *Executor
-	tasks    *TaskManager
-	store    *Store
-	monitor  *Monitor
-	trust    *TrustStore
-	assets   fs.FS
-	host     string
-	token    string
-	mu       sync.Mutex
+	metrics   *Metrics
+	service   *ServiceInfo
+	executor  *Executor
+	terminals *terminalManager
+	tasks     *TaskManager
+	store     *Store
+	monitor   *Monitor
+	trust     *TrustStore
+	assets    fs.FS
+	host      string
+	token     string
+	mu        sync.Mutex
 }
 
 func NewServer(s *Store, m *Monitor, t *TrustStore, assets fs.FS, host string) *Server {
-	return &Server{metrics: NewMetrics(t), executor: NewExecutor(t), store: s, monitor: m, trust: t, assets: assets, host: host, token: randomToken()}
+	return &Server{metrics: NewMetrics(t), executor: NewExecutor(t), terminals: newTerminalManager(), store: s, monitor: m, trust: t, assets: assets, host: host, token: randomToken()}
 }
 
 // SetServiceInfo is called once, before serving requests.
@@ -93,6 +94,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(w, http.StatusOK, s.service)
 		return
 	}
+	if r.URL.Path == "/ssh" {
+		s.terminalAPI(w, r)
+		return
+	}
 	// Clients bind every request to the process they probed. A restart or port
 	// reuse between discovery and submission must never execute on a new owner.
 	if runID := r.Header.Get("X-Watch-Instance"); runID != "" && (s.service == nil || runID != s.service.RunID) {
@@ -123,6 +128,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.URL.Path == "/" {
+		nonce := randomToken()
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'nonce-"+nonce+"'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 		b, err := fs.ReadFile(s.assets, "index.html")
 		if err != nil {
 			fail(w, 500, "页面不存在")
@@ -140,6 +147,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				"__WATCH_VERSION__", html.EscapeString(version),
 				"__WATCH_INSTANCE__", html.EscapeString(instance),
 				"__WATCH_BUILD__", html.EscapeString(build),
+				"__WATCH_STYLE_NONCE__", html.EscapeString(nonce),
 			).Replace(string(b))
 			_, _ = io.WriteString(w, page)
 		}
@@ -169,7 +177,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if strings.HasPrefix(r.URL.Path, "/api/history/") {
-		s.historyAPI(w, r)
+		fail(w, 410, "完整命令输出历史已移除；请使用 NPU 小时统计和远端任务结果")
 		return
 	}
 	switch r.URL.Path {
@@ -270,6 +278,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) Close() {
+	s.terminals.Close()
 	if s.tasks != nil {
 		s.tasks.Close()
 	}

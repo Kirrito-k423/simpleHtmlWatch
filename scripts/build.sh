@@ -12,9 +12,11 @@ for target in windows/amd64 windows/arm64 darwin/arm64 darwin/amd64 linux/amd64 
   executable="simpleHtmlWatch"
   if [[ "$target_os" == windows ]]; then executable="simpleHtmlWatch.exe"; fi
   CGO_ENABLED=0 GOOS="$target_os" GOARCH="$target_arch" go build -trimpath -ldflags "-s -w -X main.version=${version}" -o "$folder/$executable" .
-  cp README.md LICENSE AI-START-HERE.md AI-GLOBAL-PROMPT.md "$folder/"
+  cp README.md LICENSE THIRD-PARTY-NOTICES.md AI-START-HERE.md AI-GLOBAL-PROMPT.md "$folder/"
+  mkdir -p "$folder/scripts"
+  cp scripts/storage_audit.py "$folder/scripts/"
   mkdir -p "$folder/docs"
-  cp docs/dashboard.png docs/troubleshooting.md docs/task-controller.md docs/service-lifecycle.md docs/netdata.md docs/utilization.md docs/experiment-continuations.md docs/atomic-group-reservations.md "$folder/docs/"
+  cp docs/dashboard.png docs/storage.md docs/troubleshooting.md docs/task-controller.md docs/service-lifecycle.md docs/netdata.md docs/utilization.md docs/experiment-continuations.md docs/atomic-group-reservations.md "$folder/docs/"
   mkdir -p "$folder/skills"
   python3 - "$folder/skills" <<'PY'
 import shutil, sys

@@ -131,6 +131,14 @@ class ArchiveDownloadTests(unittest.TestCase):
             self.assertEqual(client.return_value.api.call_count, 2)
             sleep.assert_called_once()
 
+    def test_wait_remote_mode_finishes_without_local_cache(self):
+        finished = {"status": "succeeded", "finishedAt": "2026-10-20T00:00:00Z", "exitCode": 0, "archiveReady": False, "archiveMode": "remote"}
+        with patch.object(sys, "argv", ["taskctl.py", "wait", "example"]), patch.object(taskctl, "Client") as client, patch.object(taskctl.time, "sleep") as sleep, patch.object(taskctl, "show"):
+            client.return_value.api.return_value = finished
+            self.assertEqual(taskctl.main(), 0)
+            self.assertEqual(client.return_value.api.call_count, 1)
+            sleep.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

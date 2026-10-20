@@ -52,11 +52,12 @@ func (f *fakeTaskRemote) Probe(_ context.Context, _ TaskJob, _ Profile) (string,
 func (f *fakeTaskRemote) Logs(_ context.Context, _ TaskJob, _ Profile) (TaskLogs, error) {
 	return TaskLogs{Stdout: "progress", Stderr: ""}, nil
 }
-func (f *fakeTaskRemote) Collect(_ context.Context, _ TaskJob, _ Profile, path string) error {
+func (f *fakeTaskRemote) Stream(_ context.Context, _ TaskJob, _ Profile, out io.Writer) error {
 	f.mu.Lock()
 	f.collect++
 	f.mu.Unlock()
-	return os.WriteFile(path, []byte("archive"), 0600)
+	_, err := io.WriteString(out, "archive")
+	return err
 }
 
 func setupTasks(t *testing.T, remote taskRemote) (*TaskManager, *Monitor, Config, *Store) {
@@ -85,12 +86,12 @@ func waitTask(t *testing.T, m *TaskManager, id string) TaskJob {
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		job, ok := m.Get(id)
-		if ok && job.FinishedAt != nil && job.ArchiveReady {
+		if ok && job.FinishedAt != nil {
 			return job
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	t.Fatal("task did not finish and collect")
+	t.Fatal("task did not finish")
 	return TaskJob{}
 }
 
@@ -126,7 +127,7 @@ func TestTaskReadyDispatchIdempotencyAndRecovery(t *testing.T) {
 	if logs, err := m.Logs(request.ID); err != nil || logs.Stdout != "progress" {
 		t.Fatalf("logs: %+v %v", logs, err)
 	}
-	if _, err := os.Stat(m.path(request.ID, "result.tar.gz")); err != nil {
+	if _, err := os.Stat(m.path(request.ID, "result.tar.gz")); !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
 	m.Close()
@@ -135,7 +136,7 @@ func TestTaskReadyDispatchIdempotencyAndRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer restarted.Close()
-	if got, ok := restarted.Get(request.ID); !ok || !got.ArchiveReady {
+	if got, ok := restarted.Get(request.ID); !ok || got.ArchiveMode != "remote" || got.ArchiveReady {
 		t.Fatal("durable task missing after restart")
 	}
 	remote.mu.Lock()
@@ -162,7 +163,7 @@ func TestTaskAutoSelectionAndDurableTimeline(t *testing.T) {
 		t.Fatalf("auto submit: %d %v %+v", status, err, job)
 	}
 	job = waitTask(t, m, request.ID)
-	want := []string{"dispatching", "running", "succeeded", "archive_ready"}
+	want := []string{"dispatching", "running", "succeeded"}
 	if len(job.Events) != len(want) {
 		t.Fatalf("timeline events: %+v", job.Events)
 	}
@@ -178,7 +179,7 @@ func TestTaskAutoSelectionAndDurableTimeline(t *testing.T) {
 	}
 	defer restarted.Close()
 	got, ok := restarted.Get(request.ID)
-	if !ok || len(got.Events) != len(want) || got.Events[3].Type != "archive_ready" {
+	if !ok || len(got.Events) != len(want) || got.Events[2].Type != "succeeded" {
 		t.Fatalf("timeline lost on restart: %+v", got.Events)
 	}
 }
@@ -189,7 +190,7 @@ func TestTaskTimelineKeepsFirstAndRecentEvents(t *testing.T) {
 	for i := 0; i < 520; i++ {
 		taskEvent(job, base.Add(time.Duration(i)*time.Second), "running", fmt.Sprint(i))
 	}
-	if len(job.Events) != 512 || job.EventsDropped != 8 || job.Events[0].Text != "0" || job.Events[1].Text != "9" || job.Events[511].Text != "519" {
+	if len(job.Events) != 32 || job.EventsDropped != 488 || job.Events[0].Text != "0" || job.Events[1].Text != "489" || job.Events[31].Text != "519" {
 		t.Fatalf("bounded timeline: first=%+v second=%+v last=%+v dropped=%d", job.Events[0], job.Events[1], job.Events[511], job.EventsDropped)
 	}
 }
@@ -271,7 +272,7 @@ func TestTaskUnknownRequiresExplicitResolution(t *testing.T) {
 	if job, _ := m.Get(request.ID); job.Status != "abandoned" {
 		t.Fatal("polling overwrote manual resolution")
 	}
-	if _, err := m.Collect(request.ID); err == nil {
+	if err := m.StreamArchive(context.Background(), request.ID, io.Discard); err == nil {
 		t.Fatal("unknown task collected after resolution")
 	}
 	if _, err := m.Abandon(request.ID); err == nil {
@@ -305,7 +306,7 @@ func TestTaskInterruptedLaunchNeverReplayed(t *testing.T) {
 	if launches != 0 {
 		t.Fatal("recovered task relaunched")
 	}
-	if _, err := recovered.Collect(job.ID); err == nil || errors.Is(err, os.ErrNotExist) {
+	if err := recovered.StreamArchive(context.Background(), job.ID, io.Discard); err == nil || errors.Is(err, os.ErrNotExist) {
 		t.Fatal("unfinished task was collected")
 	}
 }

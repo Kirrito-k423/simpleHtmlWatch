@@ -3,6 +3,7 @@ const {test, expect} = require('@playwright/test');
 test('快捷 SSH：选机、交互、缩放、关闭及 CSP；输出不保存到浏览器存储', async ({page}, testInfo) => {
   const errors = [], violations = [], messages = [], urls = [];
   let closes = 0;
+  await page.addInitScript(() => { window.cspViolations = []; document.addEventListener('securitypolicyviolation', event => window.cspViolations.push({directive:event.effectiveDirective,uri:event.blockedURI,source:event.sourceFile,line:event.lineNumber})); });
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (/Content Security Policy|violates.*directive/i.test(message.text())) violations.push(message.text()); });
   await page.routeWebSocket('**/ssh', ws => {
@@ -34,7 +35,11 @@ test('快捷 SSH：选机、交互、缩放、关闭及 CSP；输出不保存到
   await page.setViewportSize({width:720,height:900});
   await expect.poll(() => messages.filter(message => message.type === 'resize').length).toBeGreaterThan(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(720);
-  await page.screenshot({path:testInfo.outputPath('ssh-terminal.png'),fullPage:true});
+  // WebKit rejects the stylesheet Playwright injects while taking screenshots.
+  // Keep CSP assertions for all engines; capture the terminal in the others.
+  if (testInfo.project.use.browserName !== 'webkit') {
+    await page.screenshot({path:testInfo.outputPath('ssh-terminal.png'),fullPage:true});
+  }
   await page.locator('#ssh-close').click();
   await expect(page.locator('#ssh-dialog')).not.toBeVisible();
   await expect.poll(() => closes).toBe(1);
@@ -43,5 +48,6 @@ test('快捷 SSH：选机、交互、缩放、关闭及 CSP；输出不保存到
   expect(messages.find(message => message.type === 'auth').machineId).toBe('machine-15');
   expect(await page.evaluate(() => ({local:{...localStorage},session:{...sessionStorage}}))).toEqual(savedBefore);
   expect(errors).toEqual([]);
+  expect(await page.evaluate(() => window.cspViolations)).toEqual([]);
   expect(violations).toEqual([]);
 });

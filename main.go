@@ -80,11 +80,6 @@ func start() error {
 		return err
 	}
 	listener := lease.Listener
-	history, err := watch.NewHistory(*dir)
-	if err != nil {
-		return err
-	}
-	defer history.Close()
 	utilization, err := watch.NewUtilization(*dir)
 	if err != nil {
 		return err
@@ -92,7 +87,6 @@ func start() error {
 	utilization.Start()
 	defer utilization.Close()
 	monitor := watch.NewMonitor(trust)
-	monitor.SetHistory(history)
 	monitor.SetUtilization(utilization)
 	monitor.Replace(store.Snapshot())
 	defer monitor.Close()

@@ -1,8 +1,11 @@
 package watch
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"net/http/httptest"
 	"os"
@@ -121,7 +124,11 @@ func TestUtilizationCompactThirtyDaysAndQuota(t *testing.T) {
 			key := fmt.Sprintf("%024d", machine)
 			d.Machines[key] = utilizationMachine{fmt.Sprintf("machine-%02d", machine), "机器", "A5", "192.0.2.1:22", "Ascend950DT", "NPU Util(%)"}
 			for hour := 0; hour < 24; hour++ {
-				d.Hours[key] = append(d.Hours[key], utilizationBucket{int64(hour), 3600000, 18000000000, 1800000, 10000, 360, 3600000, 1800000})
+				seed := uint64(day*60*24+machine*24+hour+1) * 6364136223846793005
+				basis := int64(seed>>32) % 10001
+				low := int64(seed>>20) % 3600001
+				occupied := int64(seed>>12) % 3600001
+				d.Hours[key] = append(d.Hours[key], utilizationBucket{int64(hour), 3600000, basis * 3600000, low, 10000, 900, 3600000, occupied})
 			}
 		}
 		u.days[date], u.dirty[date] = d, true
@@ -130,9 +137,25 @@ func TestUtilizationCompactThirtyDaysAndQuota(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("synthetic 60-machine / 30-day footprint: %d bytes (%.2f MiB)", u.bytes, float64(u.bytes)/1048576)
-	if u.bytes > 9*1024*1024 {
+	if u.bytes > utilizationLimit {
 		t.Fatal("hourly storage exceeded budget")
 	}
+	var allocated int64
+	files, err := u.files()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range files {
+		info, err := os.Stat(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		allocated += storageCharge(info.Size())
+	}
+	if allocated+metadataGrowthLimit+500_000 > 5_000_000 {
+		t.Fatal("combined steady-state growth exceeds 5 MB target")
+	}
+	t.Logf("hourly files allocated estimate: %d; with full metadata budget and overhead allowance: %d", allocated, allocated+metadataGrowthLimit+500_000)
 	reopened, err := newUtilization(dir, func() time.Time { return now })
 	if err != nil {
 		t.Fatal(err)
@@ -154,8 +177,8 @@ func TestUtilizationCompactThirtyDaysAndQuota(t *testing.T) {
 	if reopened.bytes > reopened.limit {
 		t.Fatal("disk limit not enforced")
 	}
-	for _, file := range mustGlob(t, filepath.Join(dir, "utilization", "*.json")) {
-		raw, _ := os.ReadFile(file)
+	for _, file := range mustGlob(t, filepath.Join(dir, "utilization", "*.json*")) {
+		raw := readUtilizationBytes(t, file)
 		if strings.Contains(string(raw), "stdout") || strings.Contains(string(raw), "cardId") || strings.Contains(string(raw), "password") {
 			t.Fatal("raw or device data persisted")
 		}
@@ -273,4 +296,24 @@ func TestUtilizationCalendarIntervalsStripMonotonicClock(t *testing.T) {
 			t.Fatal("calendar aggregation retains monotonic readings")
 		}
 	}
+}
+
+func readUtilizationBytes(t *testing.T, path string) []byte {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.HasSuffix(path, ".gz") {
+		r, err := gzip.NewReader(bytes.NewReader(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Close()
+		raw, err = io.ReadAll(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	return raw
 }

@@ -4,7 +4,7 @@
   const panel = document.querySelector('#task-panel');
   const token = document.querySelector('meta[name="watch-token"]').content;
   const labels = {dispatching:'发送中', running:'运行中', unknown:'结果未知', succeeded:'命令成功', failed:'命令失败', abandoned:'人工解除', archive_ready:'结果已回收', archive_error:'回收失败', legacy_created:'旧记录创建', legacy_finished:'旧记录结束'};
-  const state = {jobs:[], ready:[], machines:[], collapsed:new Set(), filter:'running', view:null, busy:false, selected:null, pending:null, logs:null, notice:'', error:'', refreshing:false, scope:'auto', group:'', machine:''};
+  const state = {storage:null, jobs:[], ready:[], machines:[], collapsed:new Set(), filter:'running', view:null, busy:false, selected:null, pending:null, logs:null, notice:'', error:'', refreshing:false, scope:'auto', group:'', machine:''};
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
   const full = value => value ? new Date(value).toLocaleString('zh-CN', {hour12:false}) : '—';
   const timeline = window.TaskTimeline;
@@ -115,12 +115,12 @@
     const job = selected(), detail = panel.querySelector('#task-detail');
     if (!job) { detail.innerHTML = '<div class="task-detail-empty">选择一条任务查看退出码、日志与结果文件。</div>'; return; }
     const status = labels[job.status] || job.status;
-    const archive = job.archiveReady ? '已回收' : job.archiveError ? '回收失败' : hasExit(job) ? '等待回收' : '等待退出结果';
+    const archive = job.archiveReady ? '已回收' : job.archiveError ? '回收失败' : hasExit(job) ? '远端保存 · 按需下载' : '等待退出结果';
     detail.innerHTML = `<div class="task-detail-head"><div><span>选中任务</span><h3>${esc(job.id)}</h3></div><span class="task-status ${esc(job.status)}">${esc(status)}</span></div>
       <dl class="task-facts"><div><dt>实际机器</dt><dd>${esc(job.machineName || job.selectedMachineId)} · ${esc(job.host || '')}</dd></div><div><dt>远端退出码</dt><dd>${hasExit(job) ? esc(job.exitCode) : '未知'}</dd></div><div><dt>结果包</dt><dd>${esc(archive)}</dd></div><div><dt>创建时间</dt><dd>${esc(full(job.createdAt))}</dd></div><div><dt>结束时间</dt><dd>${esc(full(job.finishedAt))}</dd></div></dl>
       ${job.error ? `<p class="task-problem">${esc(job.error)}</p>` : ''}${job.archiveError ? `<p class="task-problem">结果回收：${esc(job.archiveError)}</p>` : ''}
       ${job.eventsDropped ? `<p class="task-problem">较早的 ${job.eventsDropped} 条状态事件已从任务记录中裁剪。</p>` : ''}
-      <div class="task-detail-actions"><button data-task-action="metrics">运行期间系统指标</button>${!job.finishedAt && job.status !== 'dispatching' ? '<button data-task-action="probe">重新探测远端状态</button>' : ''}<button data-task-action="logs">读取日志末尾</button>${hasExit(job) && !job.archiveReady ? '<button data-task-action="collect">重试回收</button>' : ''}${job.archiveReady ? '<button data-task-action="download">下载结果包</button>' : ''}</div>
+      <div class="task-detail-actions"><button data-task-action="metrics">运行期间系统指标</button>${!job.finishedAt && job.status !== 'dispatching' ? '<button data-task-action="probe">重新探测远端状态</button>' : ''}<button data-task-action="logs">读取日志末尾</button>${hasExit(job) || job.archiveReady ? '<button data-task-action="download">下载结果包</button>' : ''}</div>
       ${job.status === 'unknown' && !job.finishedAt ? '<div class="task-problem">结果未知会保留机器占用。先探测状态、读取日志，并核实远端进程及子进程已停止，再解除本地占用。<button data-task-action="resolve">已核实远端停止，解除占用…</button></div>' : ''}
       ${job.reservationId ? `<p class="task-log-hint">所属预约：${esc(job.reservationId)}。解除任务后，独立预约仍由原调用方管理。</p>` : ''}
       <details><summary>全部里程碑（${timeline.eventsFor(job).length}）</summary><ol class="task-event-list">${timeline.eventsFor(job).map(event => `<li><b>${symbols[event.type] || '◇'} ${esc(labels[event.type] || event.type)}</b><time>${esc(full(event.at))}</time><span>${esc(event.text)}</span></li>`).join('')}</ol></details>
@@ -139,13 +139,18 @@
     const online = state.machines.filter(machine => ['online','partial'].includes(machine.status)).length;
     const completed = state.jobs.filter(job => job.finishedAt).length;
     panel.querySelector('#task-stats').innerHTML = `<span><b>${state.machines.length}</b> 注册机器</span><span><b>${online}</b> 监控在线</span><span><b>${state.ready.length}</b> ready</span><span><b>${running}</b> 运行或发送</span><span><b>${unknown}</b> 结果未知</span><span><b>${completed}</b> 已结束</span>`;
+    if (state.storage) {
+      const used = Math.max(0, state.storage.bytes - state.storage.baselineBytes);
+      panel.querySelector('#task-storage').textContent = `元数据新增 ${(used / 1000000).toFixed(2)} / ${(state.storage.growthLimitBytes / 1000000).toFixed(1)} MB · 结果按需下载`;
+    }
     readyOptions(); renderBoard(); renderDetail(); renderMessage();
   }
   async function refresh() {
     if (state.refreshing) return;
     state.refreshing = true;
     try {
-      const [jobs, machines] = await Promise.all([request(''), request('/machines')]);
+      const [jobs, machines, storage] = await Promise.all([request(''), request('/machines'), request('/storage')]);
+      state.storage = storage;
       state.jobs = Array.isArray(jobs) ? jobs : [];
       state.machines = Array.isArray(machines) ? machines : [];
       state.ready = state.machines.filter(machine => machine.ready);
@@ -175,7 +180,7 @@
       state.pending = null;
       state.selected = job.id;
       state.logs = null;
-      state.notice = `任务 ${job.id} 已受理，实际分配到 ${job.machineName || job.selectedMachineId}。请看时间线确认启动、退出与回收。`;
+      state.notice = `任务 ${job.id} 已受理，实际分配到 ${job.machineName || job.selectedMachineId}。请看时间线确认启动与退出；结果按需下载。`;
       state.view = null;
       await refresh();
     } catch (error) {
@@ -210,7 +215,6 @@
         state.notice = `任务 ${job.id} 已解除本地占用，退出结果仍未知。${job.reservationId ? '独立预约仍保留，请联系原调用方释放。' : ''}`;
         await refresh();
       }
-      if (action === 'collect') { await request('/collect?id=' + encodeURIComponent(job.id), 'POST'); await refresh(); }
       if (action === 'download') {
         downloadTaskArchive(job.id, token);
         state.notice = '已交给浏览器下载，请在浏览器下载列表确认进度与完成状态。';
@@ -220,8 +224,8 @@
     finally { state.busy = false; }
   }
   panel.innerHTML = `<div class="task-page-head"><div><div class="eyebrow">SSH TASK CONTROLLER / EVENT TIMELINE</div><h1>任务中台</h1><p>按实际机器查看任务时长与里程碑；所有注册机器均可见，忙碌和离线不会隐藏。</p></div><div class="task-head-actions"><div id="task-stats" class="task-stats"></div><button data-task-action="refresh">刷新</button><a href="/">返回监控</a></div></div>
-    <div id="task-message" role="status" hidden></div><div class="task-page-grid"><section class="task-board-card"><div class="task-section-heading"><div><h2>任务时间泳道</h2><p>连续等比例时间轴 · 滚轮缩放鼠标附近时间 · Shift + 滚轮平移</p></div><div class="task-board-nav"><select id="task-filter" aria-label="筛选任务"><option value="running" selected>运行中（含发送中）</option><option value="unknown">结果未知</option><option value="all">全部任务</option></select><span id="task-count"></span><button data-task-action="collapse">收起机器</button><button data-task-action="fit">全局</button><button data-task-action="zoom-in" aria-label="放大时间轴">＋</button><button data-task-action="zoom-out" aria-label="缩小时间轴">−</button><button data-task-action="pan-left" aria-label="向前平移">‹</button><button data-task-action="pan-right" aria-label="向后平移">›</button><button data-task-action="earliest" aria-label="移到最早事件">← 最早</button><button data-task-action="latest" aria-label="移到最近事件">最近 →</button></div></div><div class="task-timeline-info"><span id="task-range"></span><div class="task-legend"><span class="dispatching">◆ 受理</span><span class="running">● 运行</span><span class="succeeded">✓ 成功</span><span class="failed">✕ 失败</span><span class="unknown">? 未知</span><span class="abandoned">⊘ 解除</span><span class="archive_ready">■ 回收</span></div></div><div id="task-board" class="task-board" role="table" aria-label="按实际机器分组的任务时间轴"></div><p class="task-board-note">时间是中台的受理或观测时间，远端退出可能早于轮询发现。长条表示从受理到结束（或现在）的占用时间；“未知”不证明进程持续运行。选择任务可查看全部里程碑。</p></section>
-    <aside class="task-side"><form id="task-form" class="task-compose"><div class="task-section-heading"><h2>发送任务</h2><span>一次调度一台 ready 机器</span></div><label>调度范围<select id="task-scope"><option value="auto">自动调度 · 所有 ready 机器</option><option value="group">指定机器组</option><option value="machine">指定机器</option></select></label><select id="task-group" aria-label="选择机器组" hidden></select><select id="task-machine" aria-label="选择机器" hidden></select><div class="task-preview"><small>预计落点 · 实际机器以提交响应为准</small><div id="task-target"></div></div><label>远端 Bash 命令<textarea id="task-command" rows="5" spellcheck="false" maxlength="4096" placeholder="python train.py --epochs 5&#10;cp summary.json &quot;$SHW_RESULTS_DIR/&quot;"></textarea></label><p>把需要回收的文件写入 <code>$SHW_RESULTS_DIR</code>；stdout 与 stderr 单独保存。自动调度可能选到不同硬件，命令依赖型号时请限定组或机器。ready 不代表 NPU 空闲。</p><button id="task-submit" class="primary" type="submit">发送到 ready 机器</button></form><section id="task-detail" class="task-detail"></section></aside></div>`;
+    <p id="task-storage" role="status"></p><div id="task-message" role="status" hidden></div><div class="task-page-grid"><section class="task-board-card"><div class="task-section-heading"><div><h2>任务时间泳道</h2><p>连续等比例时间轴 · 滚轮缩放鼠标附近时间 · Shift + 滚轮平移</p></div><div class="task-board-nav"><select id="task-filter" aria-label="筛选任务"><option value="running" selected>运行中（含发送中）</option><option value="unknown">结果未知</option><option value="all">全部任务</option></select><span id="task-count"></span><button data-task-action="collapse">收起机器</button><button data-task-action="fit">全局</button><button data-task-action="zoom-in" aria-label="放大时间轴">＋</button><button data-task-action="zoom-out" aria-label="缩小时间轴">−</button><button data-task-action="pan-left" aria-label="向前平移">‹</button><button data-task-action="pan-right" aria-label="向后平移">›</button><button data-task-action="earliest" aria-label="移到最早事件">← 最早</button><button data-task-action="latest" aria-label="移到最近事件">最近 →</button></div></div><div class="task-timeline-info"><span id="task-range"></span><div class="task-legend"><span class="dispatching">◆ 受理</span><span class="running">● 运行</span><span class="succeeded">✓ 成功</span><span class="failed">✕ 失败</span><span class="unknown">? 未知</span><span class="abandoned">⊘ 解除</span><span class="archive_ready">■ 回收</span></div></div><div id="task-board" class="task-board" role="table" aria-label="按实际机器分组的任务时间轴"></div><p class="task-board-note">时间是中台的受理或观测时间，远端退出可能早于轮询发现。长条表示从受理到结束（或现在）的占用时间；“未知”不证明进程持续运行。选择任务可查看全部里程碑。</p></section>
+    <aside class="task-side"><form id="task-form" class="task-compose"><div class="task-section-heading"><h2>发送任务</h2><span>一次调度一台 ready 机器</span></div><label>调度范围<select id="task-scope"><option value="auto">自动调度 · 所有 ready 机器</option><option value="group">指定机器组</option><option value="machine">指定机器</option></select></label><select id="task-group" aria-label="选择机器组" hidden></select><select id="task-machine" aria-label="选择机器" hidden></select><div class="task-preview"><small>预计落点 · 实际机器以提交响应为准</small><div id="task-target"></div></div><label>远端 Bash 命令<textarea id="task-command" rows="5" spellcheck="false" maxlength="4096" placeholder="python train.py --epochs 5&#10;cp summary.json &quot;$SHW_RESULTS_DIR/&quot;"></textarea></label><p>把需要回收的文件写入 <code>$SHW_RESULTS_DIR</code>；stdout 与 stderr 保存在远端，结果按需下载，本机不自动缓存。自动调度可能选到不同硬件，命令依赖型号时请限定组或机器。ready 不代表 NPU 空闲。</p><button id="task-submit" class="primary" type="submit">发送到 ready 机器</button></form><section id="task-detail" class="task-detail"></section></aside></div>`;
   document.body.classList.add('task-mode'); panel.hidden = false;
   panel.querySelector('#task-filter').onchange = event => {
     state.filter = event.target.value;

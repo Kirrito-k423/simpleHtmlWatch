@@ -326,9 +326,6 @@ func TestContinuationTaskHandoffRecoveryAndReview(t *testing.T) {
 		if !restarted.probe(planned.ID) {
 			t.Fatal("recovery query did not confirm original task completion")
 		}
-		if _, err := restarted.Collect(planned.ID); err != nil {
-			t.Fatal(err)
-		}
 		waitTask(t, restarted, planned.ID)
 	}
 	if err := restarted.CheckContinuations(); err != nil {

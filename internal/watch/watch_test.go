@@ -144,6 +144,10 @@ type fixture struct {
 	customRuns      atomic.Int32
 	dropCustom      atomic.Bool
 	npuRuns         atomic.Int32
+	terminalEnabled atomic.Bool
+	terminalRuns    atomic.Int32
+	terminalRows    atomic.Uint32
+	terminalCols    atomic.Uint32
 	npuOutput       string // Set before starting the monitor fixture.
 	activeConns     sync.Map
 	stop            chan struct{}
@@ -210,6 +214,38 @@ func newFixture(t *testing.T) *fixture {
 						defer f.wg.Done()
 						defer stream.Close()
 						for r := range requests {
+							if f.terminalEnabled.Load() {
+								switch r.Type {
+								case "pty-req":
+									var size struct {
+										Term             string
+										Cols, Rows, X, Y uint32
+										Modes            string
+									}
+									_ = ssh.Unmarshal(r.Payload, &size)
+									f.terminalRows.Store(size.Rows)
+									f.terminalCols.Store(size.Cols)
+									_ = r.Reply(true, nil)
+									continue
+								case "window-change":
+									var size struct{ Cols, Rows, X, Y uint32 }
+									_ = ssh.Unmarshal(r.Payload, &size)
+									f.terminalRows.Store(size.Rows)
+									f.terminalCols.Store(size.Cols)
+									_ = r.Reply(true, nil)
+									continue
+								case "shell":
+									_ = r.Reply(true, nil)
+									f.terminalRuns.Add(1)
+									f.wg.Add(1)
+									go func() {
+										defer f.wg.Done()
+										_, _ = io.WriteString(stream, "\x1b[32mfixture$ \x1b[0m")
+										_, _ = io.Copy(stream, stream)
+									}()
+									continue
+								}
+							}
 							if r.Type != "exec" {
 								_ = r.Reply(false, nil)
 								continue

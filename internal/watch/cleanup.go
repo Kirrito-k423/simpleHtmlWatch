@@ -18,7 +18,7 @@ import (
 )
 
 const cleanupSchema = "simplehtmlwatch.cleanup.v1"
-const cleanupLimit int64 = 20 * 1024 * 1024
+const cleanupLimit int64 = 512 * 1024
 const cleanupMinimum = 5 * time.Minute
 
 type CleanupPolicy struct {
@@ -158,8 +158,8 @@ func (m *TaskManager) loadCleanup() error {
 	}
 	return nil
 }
-func durableCleanup(path string, b []byte) error {
-	if err := writeAtomic(path, b); err != nil {
+func (m *TaskManager) durableCleanup(path string, b []byte) error {
+	if err := m.budget.Write(path, b, 0); err != nil {
 		return err
 	}
 	if runtime.GOOS == "windows" {
@@ -173,7 +173,7 @@ func durableCleanup(path string, b []byte) error {
 	return d.Sync()
 }
 func (m *TaskManager) saveCleanup(a CleanupAudit) error {
-	b, err := json.MarshalIndent(a, "", "  ")
+	b, err := json.Marshal(a)
 	if err != nil {
 		return err
 	}
@@ -195,7 +195,7 @@ func (m *TaskManager) saveCleanup(a CleanupAudit) error {
 	if len(b) > 256*1024 || size+int64(len(b)) > cleanupLimit {
 		return errors.New("CLEANUP_AUDIT_STORAGE_FULL; cleanup stopped; archive logs before resuming")
 	}
-	return durableCleanup(filepath.Join(m.cleanupDir(), a.ID+".json"), b)
+	return m.durableCleanup(filepath.Join(m.cleanupDir(), a.ID+".json"), b)
 }
 func (m *TaskManager) SetCleanupPolicy(p CleanupPolicy) error {
 	if p.Enabled && (strings.TrimSpace(p.AuthorizationRef) == "" || len(p.AuthorizationRef) > 1024) {
@@ -205,7 +205,7 @@ func (m *TaskManager) SetCleanupPolicy(p CleanupPolicy) error {
 	defer m.mu.Unlock()
 	p.UpdatedAt = m.now()
 	b, _ := json.Marshal(p)
-	if err := durableCleanup(filepath.Join(m.cleanupDir(), "policy.json"), b); err != nil {
+	if err := m.durableCleanup(filepath.Join(m.cleanupDir(), "policy.json"), b); err != nil {
 		return err
 	}
 	m.cleanup.Policy = p

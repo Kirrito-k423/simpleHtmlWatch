@@ -64,14 +64,14 @@ func (m *TaskManager) loadReservations() error {
 }
 
 func (m *TaskManager) saveReservations(next map[string]Reservation) error {
-	b, err := json.MarshalIndent(next, "", "  ")
+	b, err := json.Marshal(next)
 	if err != nil {
 		return err
 	}
 	if len(b) > 4*1024*1024 {
 		return errors.New("RESERVATION_STORE_TOO_LARGE")
 	}
-	if err := writeAtomic(filepath.Join(m.dir, "reservations.json"), b); err != nil {
+	if err := m.budget.Write(filepath.Join(m.dir, "reservations.json"), b, 0); err != nil {
 		return err
 	}
 	m.reservations = next

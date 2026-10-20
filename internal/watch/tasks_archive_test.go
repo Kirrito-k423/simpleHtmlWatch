@@ -42,12 +42,12 @@ func TestArchiveWriterTenGiBBoundaryAndAbort(t *testing.T) {
 
 type slowArchiveRemote struct{ fakeTaskRemote }
 
-func (r *slowArchiveRemote) Collect(ctx context.Context, job TaskJob, profile Profile, path string) error {
+func (r *slowArchiveRemote) Stream(ctx context.Context, job TaskJob, profile Profile, out io.Writer) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-time.After(150 * time.Millisecond):
-		return r.fakeTaskRemote.Collect(ctx, job, profile, path)
+		return r.fakeTaskRemote.Stream(ctx, job, profile, out)
 	}
 }
 
@@ -62,6 +62,7 @@ func TestTaskArchiveHTTPStreamingAndTimeout(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitTask(t, m, job.ID)
+	m.update(job.ID, func(j *TaskJob) { j.ArchiveReady = true })
 	path := m.path(job.ID, "result.tar.gz")
 	f, err := os.Create(path)
 	if err != nil {
@@ -82,7 +83,9 @@ func TestTaskArchiveHTTPStreamingAndTimeout(t *testing.T) {
 	}
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Exceed the normal API deadline before handling this download.
-		time.Sleep(100 * time.Millisecond)
+		if r.URL.Path == "/api/tasks/archive" {
+			time.Sleep(100 * time.Millisecond)
+		}
 		app.ServeHTTP(w, r)
 	}))
 	app.host = server.Listener.Addr().String()
@@ -135,8 +138,8 @@ func TestTaskArchiveHTTPStreamingAndTimeout(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer response.Body.Close()
-	if response.StatusCode != 200 {
-		t.Fatalf("slow manual collection failed: %d", response.StatusCode)
+	if response.StatusCode != 410 {
+		t.Fatalf("removed cache endpoint: %d", response.StatusCode)
 	}
 }
 

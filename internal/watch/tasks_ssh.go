@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -140,7 +138,7 @@ func (w *archiveWriter) Write(p []byte) (int, error) {
 	return n, w.err
 }
 
-func (r *sshTaskRemote) Collect(ctx context.Context, job TaskJob, profile Profile, destination string) error {
+func (r *sshTaskRemote) Stream(ctx context.Context, job TaskJob, profile Profile, out io.Writer) error {
 	addr := net.JoinHostPort(job.Host, strconv.Itoa(job.Port))
 	client, conn, err := dial(ctx, addr, profile, r.trust.Callback(addr, false))
 	if err != nil {
@@ -154,21 +152,12 @@ func (r *sshTaskRemote) Collect(ctx context.Context, job TaskJob, profile Profil
 	}
 	stop := context.AfterFunc(ctx, func() { conn.Close() })
 	defer stop()
-	f, err := os.CreateTemp(filepath.Dir(destination), ".archive-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(f.Name())
-	defer f.Close()
-	if err := f.Chmod(0600); err != nil {
-		return err
-	}
 	session, err := client.NewSession()
 	if err != nil {
 		return err
 	}
 	defer session.Close()
-	writer := &archiveWriter{file: f, progress: progress, abort: func() { conn.Close() }}
+	writer := &archiveWriter{file: out, progress: progress, abort: func() { conn.Close() }}
 	session.Stdout = writer
 	var stderr boundedOutput
 	session.Stderr = &stderr
@@ -182,13 +171,7 @@ func (r *sshTaskRemote) Collect(ctx context.Context, job TaskJob, profile Profil
 	if writer.size == 0 {
 		return io.ErrUnexpectedEOF
 	}
-	if err := f.Sync(); err != nil {
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	return os.Rename(f.Name(), destination)
+	return nil
 }
 
 var _ taskRemote = (*sshTaskRemote)(nil)

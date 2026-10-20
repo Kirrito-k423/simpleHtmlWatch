@@ -18,6 +18,16 @@ func (w archiveResponseWriter) Write(p []byte) (int, error) {
 
 func (w archiveResponseWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
+type archiveStreamWriter struct {
+	archiveResponseWriter
+	started bool
+}
+
+func (w *archiveStreamWriter) Write(p []byte) (int, error) {
+	w.started = true
+	return w.archiveResponseWriter.Write(p)
+}
+
 func (s *Server) tasksAPI(w http.ResponseWriter, r *http.Request) {
 	if s.tasks == nil {
 		fail(w, 503, "任务中台未启用")
@@ -29,6 +39,12 @@ func (s *Server) tasksAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch r.URL.Path {
+	case "/api/tasks/storage":
+		if r.Method != "GET" {
+			w.WriteHeader(405)
+			return
+		}
+		jsonResponse(w, 200, s.tasks.budget.Status())
 	case "/api/tasks/cleanup":
 		if r.Method == "POST" {
 			if id != "" {
@@ -163,15 +179,7 @@ func (s *Server) tasksAPI(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, "请提供已完成任务 ID")
 			return
 		}
-		// Collection is bounded by SSH inactivity and manager cancellation,
-		// not by the size-independent timeout used for ordinary API requests.
-		_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
-		job, err := s.tasks.Collect(id)
-		if err != nil {
-			fail(w, 502, err.Error())
-			return
-		}
-		jsonResponse(w, 200, job)
+		fail(w, 410, "已移除本机结果缓存；请用 download 或任务页直接下载远端结果")
 	case "/api/tasks/resolve":
 		if r.Method != "POST" {
 			w.WriteHeader(405)
@@ -197,19 +205,41 @@ func (s *Server) tasksAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		job, ok := s.tasks.Get(id)
-		if !ok || !job.ArchiveReady {
-			fail(w, 404, "结果包尚未回收")
+		if !ok {
+			fail(w, 404, "任务不存在")
 			return
 		}
 		path := s.tasks.path(id, "result.tar.gz")
-		if _, err := os.Stat(path); err != nil {
-			fail(w, 404, "结果包文件不存在")
-			return
-		}
 		w.Header().Set("Content-Disposition", "attachment; filename=\""+strings.ReplaceAll(id, "\"", "")+".tar.gz\"")
 		w.Header().Set("Content-Type", "application/gzip")
 		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(archiveIdleTimeout))
-		http.ServeFile(archiveResponseWriter{w}, r, path)
+		if job.ArchiveReady {
+			if _, err := os.Stat(path); err == nil {
+				http.ServeFile(archiveResponseWriter{w}, r, path)
+				return
+			} else if !os.IsNotExist(err) {
+				fail(w, 500, err.Error())
+				return
+			}
+		}
+		if job.FinishedAt == nil || job.ExitCode == nil {
+			w.Header().Del("Content-Disposition")
+			fail(w, 409, "远端退出结果尚未确认")
+			return
+		}
+		if r.Header.Get("Range") != "" {
+			w.Header().Del("Content-Disposition")
+			fail(w, 416, "远端流式结果不支持断点续传，请重新下载")
+			return
+		}
+		out := &archiveStreamWriter{archiveResponseWriter: archiveResponseWriter{w}}
+		if err := s.tasks.StreamArchive(r.Context(), id, out); err != nil {
+			if out.started {
+				panic(http.ErrAbortHandler)
+			}
+			w.Header().Del("Content-Disposition")
+			fail(w, 502, err.Error())
+		}
 	default:
 		w.WriteHeader(404)
 	}

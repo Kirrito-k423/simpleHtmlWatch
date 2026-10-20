@@ -231,7 +231,7 @@ func AcquireService(dir, instance, version string, port int, explicitPort, adopt
 	info := ServiceInfo{
 		Schema: ServiceSchema, ServiceID: serviceID, Instance: instance, RunID: randomToken(),
 		Version: version, BuildID: buildID, APIVersion: ServiceAPIVersion,
-		Capabilities: []string{"tasks", "reservations", "atomic-group-reservations-v1", "forwarded-resource-identity-v1", "instance-fencing", "netdata-metrics-v1", "accelerator-utilization-v1", "accelerator-occupancy-v1", "experiment-continuations-v1", "queue-residue-cleanup-v1"},
+		Capabilities: []string{"tasks", "reservations", "atomic-group-reservations-v1", "forwarded-resource-identity-v1", "instance-fencing", "netdata-metrics-v1", "accelerator-utilization-v1", "accelerator-occupancy-v1", "experiment-continuations-v1", "queue-residue-cleanup-v1", "task-result-stream-v1", "bounded-storage-v1", "ssh-terminal-v1"},
 		URL:          "http://" + listener.Addr().String(), DataDir: canonical, Executable: executable,
 		PID: os.Getpid(), StartedAt: time.Now().UTC().Format(time.RFC3339Nano),
 	}

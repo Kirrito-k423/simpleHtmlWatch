@@ -31,7 +31,7 @@
     const observed=rows.filter(row=>row.mean!=null).length;
     const occupiedObserved=rows.filter(row=>row.occupiedPercent!=null).length;
     message(snapshot.storageError?'历史写入异常：'+snapshot.storageError:observed?'算力历史 '+observed+' / '+rows.length+' 台；占用历史 '+occupiedObserved+' / '+rows.length+' 台。每格上行算力、下行占用；斜纹表示对应指标覆盖不足。':'所选范围尚无利用率历史。采集启用前的日期无法补回。',!!snapshot.storageError);
-    el('storage').textContent='保留 '+snapshot.retentionDays+' 天 · 已落盘 '+(snapshot.bytes/1048576).toFixed(3)+' / '+(snapshot.limitBytes/1048576).toFixed(0)+' MiB · 只存机器级小时桶 · 数据更新 '+stamp(Math.floor(Date.parse(snapshot.generatedAt)/1000));
+    el('storage').textContent='保留 '+snapshot.retentionDays+' 天 · 已落盘 '+(snapshot.bytes/1048576).toFixed(3)+' / '+(snapshot.limitBytes/1048576).toFixed(2)+' MiB · 只存机器级小时桶 · 数据更新 '+stamp(Math.floor(Date.parse(snapshot.generatedAt)/1000));
     const windows=rows.flatMap(row=>row.lowWindows.map(w=>'<p>'+escape(row.name||row.id)+'：'+stamp(w.after)+' — '+stamp(w.before)+'</p>'));
     el('windows').innerHTML=windows.length?windows.join(''):'<p>没有覆盖充足的完整低负载小时。候选需每小时覆盖 ≥90%，且已观测时间中 ≥90% 的整机均值低于 10%。</p>';
     el('export').disabled=false;

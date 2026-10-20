@@ -57,7 +57,7 @@ python3 "$SKILL_DIR/scripts/metricsctl.py" --instance <实例名> utilization --
 - 任意设备在 `npu-smi` 进程表中有进程，整机就计占用，包括算力为 0% 的进程。`occupiedPercent` 为被占用时长／进程状态明确的观测时长；按小时、窗口及同小时规律汇总。分别报告 `occupancyCoveragePercent` 和分母 `occupancyObservedSeconds`，按该分母加权，不直接平均百分比。未知进程表及升级前未采集的历史返回 null，不能补空闲；进程 PID／名称和单卡明细不保存。
 - 候选低谷要求完整小时覆盖至少 90%，且至少 90% 已观测时长的整机均值低于 10%。调度前仍检查当前 HBM、进程及中台任务占用，利用率查询本身不提交任务。
 - `utilizationComplete`、`occupancyComplete` 分别表示所有返回机器对应窗口值有效、覆盖至少 90%、无存储错误，`complete` 要求两项都满足，不能替代逐小时各自覆盖率。退出码 3 表示任意历史不全／没有数据／存储错误；有效部分仍可报告。旧算力数据完整但新增占用历史不足也会返回 3；未采集的过去无法补回。
-- 独立小时桶目录最多 20 MiB、保留含今天的最近 30 天，先淘汰过期或最早日期；不保存原始采样或单卡明细。结合 `bytes`、`limitBytes`、`storageError` 判断持久化是否正常。更完整的口径见发布包 `docs/utilization.md`。
+- 独立压缩小时桶目录最多 2 MB、保留含今天的最近 30 天，先淘汰过期或最早日期；不保存原始采样或单卡明细。结合 `bytes`、`limitBytes`、`storageError` 判断持久化是否正常。更完整的口径见发布包 `docs/utilization.md`。
 
 ## 解释图表
 

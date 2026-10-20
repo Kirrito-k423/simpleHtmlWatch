@@ -104,3 +104,5 @@ python3 -m unittest discover -s tests -p 'test_*.py' -v
 `bounded-storage-v1` 和 `task-result-stream-v1` 表示持久化元数据新增预算及按需结果下载。升级保留 `tasks/storage-budget.json`，不可删除或重置它来绕过预算。完整输出历史和自动结果缓存已移除；包内客户端需同步更新。NPU 日文件改为 `.json.gz`，旧构建不能读取，也不遵守空间预算，不可直接降级。现有结果、身份、预约和等待单仍保留，具体边界见 [空间设计](storage.md)。
 
 `ssh-terminal-v1` 提供只驻内存的人工 SSH 终端，最多 4 个连接；服务退出会关闭终端，任务中台已启动的后台任务仍只恢复查询。终端页面通过同源 WebSocket 首帧验证会话与 runId，令牌不放在 URL 中；升级后旧页面需刷新，不自动重连或重发命令。
+
+维护者可在正式启动参数中重复指定 `-bounded-log service-logs/app-stderr.log` 等诊断日志相对路径，最多 8 个。每 30 秒检查，单个超过 64 KiB 后原位保留末尾 32 KiB，保持已有 launchd/SSH 写入文件身份。仅在确认日志归属和允许截取诊断内容后配置，不能指定实验结果；探测失败不构成启用或改写日志参数的授权。详见 [空间设计](storage.md)。

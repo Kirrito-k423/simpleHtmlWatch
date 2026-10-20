@@ -22,6 +22,11 @@ import (
 var assets embed.FS
 var version = "dev"
 
+type logPaths []string
+
+func (p *logPaths) String() string         { return fmt.Sprint([]string(*p)) }
+func (p *logPaths) Set(value string) error { *p = append(*p, value); return nil }
+
 func main() {
 	if err := start(); err != nil {
 		fmt.Fprintln(os.Stderr, "simpleHtmlWatch:", err)
@@ -29,6 +34,8 @@ func main() {
 	}
 }
 func start() error {
+	var boundedLogs logPaths
+	flag.Var(&boundedLogs, "bounded-log", "明确选择数据目录内的诊断 .log；可重复，最多 8 个；每 30 秒超过 64 KiB 时仅保留末尾 32 KiB")
 	port := flag.Int("port", 0, "首次自动选端口，后续复用登记端口；显式 0 重新选端口")
 	dir := flag.String("data-dir", "", "配置目录，默认用户配置目录下 simpleHtmlWatch")
 	instance := flag.String("instance", "default", "实例名；不同实例使用独立数据目录")
@@ -71,6 +78,11 @@ func start() error {
 		return nil
 	}
 	defer lease.Close()
+	logs, err := watch.NewBoundedLogs(*dir, boundedLogs)
+	if err != nil {
+		return err
+	}
+	defer logs.Close()
 	store, err := watch.NewStore(*dir)
 	if err != nil {
 		return err

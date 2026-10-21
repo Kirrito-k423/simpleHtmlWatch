@@ -74,7 +74,7 @@ python3 "$TASKCTL" storage
 
 新版具备 `task-result-stream-v1`、`bounded-storage-v1`。结果包包含完整 `stdout.log`、`stderr.log` 和 `results/`，压缩后最多 10 GiB。下载为远端 tar → SSH → HTTP → 用户指定文件，中台不落本机缓存；远端连续 5 分钟无进度才超时。失败或中断清除本次残件，不覆盖已有文件。只有历史本机缓存支持 Range，远端即时压缩流需重新下载。`collect` 返回 410；不要通过重启或旧客户端恢复自动缓存。
 
-任务记录仍保存在本机 `tasks/`。任务、预约、等待单和诊断共享 2 MB 新增预算，重启不重置。预算满额停止新增写入，原 ID、unknown 和资源占用保留；新任务可返回 507。先用 `storage` 核对，由维护者处理容量，不删除身份记录、不换 ID 重放。完整监控文本历史已移除，NPU 小时汇总用压缩日文件，上限 2 MB / 30 天。用户下载、人工备份和独立 Netdata Agent 不属于中台预算，详见发布包 `docs/storage.md`。
+任务记录保存在本机 `tasks/`。v0.7.1 的 `completed-task-retention-v1` 把新增计量改为软目标，兼容已有基线和扩容值；满额不因空间目标返回 507。自动清理较老已完成详情，通常保留最近 100 条，压力下保留 20 条。`historyCompacted: true` 表示命令/详细事件已移除，状态、退出码、原请求摘要和下载定位保存在 `completed.json.gz`；原 ID 仍幂等查询，不换 ID 重放。运行中、unknown、有效预约和未结束实验的依赖保留。用 `storage` 核对 `policy`、`admissionBlocked`、`retentionError` 和压缩计数，清理失败不阻断新任务。完整监控文本历史已移除，NPU 小时汇总用压缩日文件，上限 2 MB / 30 天。用户下载、人工备份和独立 Netdata Agent 不属于中台预算，详见发布包 `docs/storage.md`。
 
 下载后先检查归档清单，再选择性解压。远端原文件被删或无法连接时不能重新取得结果；已有本机结果缓存须确认其他副本后再清理。
 

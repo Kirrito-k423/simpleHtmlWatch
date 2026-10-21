@@ -7,12 +7,13 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 )
 
 // Leave room for the 2 MB utilization ring, configuration and directory entries
-// within a 5 MB steady-state growth target. Existing evidence is never evicted.
+// within a 5 MB steady-state growth target. This is an advisory target, not admission control.
 const metadataGrowthLimit int64 = 2_000_000
 const taskCompletionReserve int64 = 64 * 1024
 
@@ -54,7 +55,7 @@ func newStorageBudget(dir string) (*storageBudget, error) {
 			}
 			return nil
 		}
-		if filepath.Base(path) == "storage-budget.json" || filepath.Ext(path) != ".json" {
+		if filepath.Base(path) == "storage-budget.json" || (filepath.Ext(path) != ".json" && filepath.Base(path) != "completed.json.gz") {
 			return nil
 		}
 		if strings.Contains(rel, string(filepath.Separator)+".") {
@@ -77,60 +78,84 @@ func newStorageBudget(dir string) (*storageBudget, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Only a maintainer's explicit setting may increase the persisted budget.
+	// No task IDs, evidence, reservations or unknown states are removed.
+	var requested int64
+	if value := os.Getenv("SHW_TASK_METADATA_GROWTH_BYTES"); value != "" {
+		requested, err = strconv.ParseInt(value, 10, 64)
+		if err != nil || requested < metadataGrowthLimit || requested > 64_000_000 {
+			return nil, errors.New("STORAGE_BUDGET_SETTING_INVALID: expected 2000000..64000000 bytes")
+		}
+	}
 	path := filepath.Join(dir, "storage-budget.json")
 	var saved struct {
 		Version  int   `json:"version"`
 		Baseline int64 `json:"baselineBytes"`
 		Limit    int64 `json:"limitBytes"`
+		Growth   int64 `json:"growthLimitBytes,omitempty"`
 	}
 	raw, err := os.ReadFile(path)
+	write := false
 	if os.IsNotExist(err) {
-		b.baseline, b.limit = b.used, b.used+metadataGrowthLimit
-		saved.Version, saved.Baseline, saved.Limit = 1, b.baseline, b.limit
+		saved.Version, saved.Baseline, saved.Limit = 1, b.used, b.used+metadataGrowthLimit
+		if requested > metadataGrowthLimit {
+			saved.Version, saved.Growth, saved.Limit = 2, requested, b.used+requested
+		}
+		write = true
+	} else if err != nil {
+		return nil, err
+	} else {
+		if json.Unmarshal(raw, &saved) != nil || saved.Baseline < 0 {
+			return nil, errors.New("STORAGE_BUDGET_INVALID; 不会重置已有预算")
+		}
+		growth := saved.Growth
+		if saved.Version == 1 && growth == 0 {
+			growth = metadataGrowthLimit
+		}
+		if (saved.Version != 1 && saved.Version != 2) || (saved.Version == 1 && saved.Growth != 0) || growth < metadataGrowthLimit || growth > 64_000_000 || saved.Limit != saved.Baseline+growth {
+			return nil, errors.New("STORAGE_BUDGET_INVALID; 不会重置已有预算")
+		}
+		if requested != 0 && requested < growth {
+			return nil, errors.New("STORAGE_BUDGET_SHRINK_REFUSED; 保留已采用的预算")
+		}
+		if requested > growth {
+			saved.Version, saved.Growth, saved.Limit = 2, requested, saved.Baseline+requested
+			write = true
+		}
+	}
+	if write {
 		raw, _ = json.Marshal(saved)
 		if err = writeAtomic(path, raw); err != nil {
 			return nil, err
 		}
-	} else if err != nil {
-		return nil, err
-	} else {
-		if json.Unmarshal(raw, &saved) != nil || saved.Version != 1 || saved.Baseline < 0 || saved.Limit != saved.Baseline+metadataGrowthLimit {
-			return nil, errors.New("STORAGE_BUDGET_INVALID; 不会重置已有预算")
-		}
-		b.baseline, b.limit = saved.Baseline, saved.Limit
 	}
+	b.baseline, b.limit = saved.Baseline, saved.Limit
 	return b, nil
 }
 
-func (b *storageBudget) checkLocked(path string, data []byte, reserve int64) error {
-	charge := storageCharge(int64(len(data)))
-	if filepath.Base(path) == "job.json" {
-		charge += 4096
-	}
-	total := b.used - b.sizes[path] + charge + reserve
-	for p, n := range b.reserves {
-		if p != path {
-			total += n
-		}
-	}
-	if total > b.limit && charge+reserve > b.sizes[path]+b.reserves[path] {
-		return errors.New("STORAGE_BUDGET_FULL: 元数据增长已达 2 MB 预算；保留任务身份和占用，停止新增写入，请由维护者处理历史数据")
-	}
-	return nil
-}
-
-func (b *storageBudget) Check(path string, data []byte, reserve int64) error {
+// Advisory target: availability wins over a metadata quota. Completed-task
+// retention reclaims old detail; active state must still be persisted when full.
+func (b *storageBudget) overTarget() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.checkLocked(path, data, reserve)
+	total := b.used
+	for _, reserve := range b.reserves {
+		total += reserve
+	}
+	return total > b.limit
+}
+
+func (b *storageBudget) Forget(path string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.used -= b.sizes[path]
+	delete(b.sizes, path)
+	delete(b.reserves, path)
 }
 
 func (b *storageBudget) Write(path string, data []byte, reserve int64) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if err := b.checkLocked(path, data, reserve); err != nil {
-		return err
-	}
 	if err := writeAtomic(path, data); err != nil {
 		return err
 	}
@@ -150,5 +175,5 @@ func (b *storageBudget) Status() map[string]any {
 	for _, n := range b.reserves {
 		reserved += n
 	}
-	return map[string]any{"baselineBytes": b.baseline, "bytes": b.used, "limitBytes": b.limit, "reservedBytes": reserved, "growthLimitBytes": metadataGrowthLimit}
+	return map[string]any{"baselineBytes": b.baseline, "bytes": b.used, "limitBytes": b.limit, "reservedBytes": reserved, "growthLimitBytes": b.limit - b.baseline, "policy": "prune-completed", "admissionBlocked": false, "overTargetBytes": max(int64(0), b.used+reserved-b.limit)}
 }

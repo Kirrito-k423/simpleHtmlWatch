@@ -14,7 +14,7 @@ import (
 	"testing"
 )
 
-func TestStorageBudgetSurvivesRestartAndPreservesEvidence(t *testing.T) {
+func TestStorageTargetSurvivesRestartWithoutRejectingWrites(t *testing.T) {
 	dir := t.TempDir()
 	legacy := filepath.Join(dir, "reservations.json")
 	if err := os.WriteFile(legacy, []byte(`{"old":"evidence"}`), 0600); err != nil {
@@ -25,15 +25,13 @@ func TestStorageBudgetSurvivesRestartAndPreservesEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	ceiling := b.limit
-	for i := 0; ; i++ {
-		path := filepath.Join(dir, fmt.Sprintf("audit-%d.json", i))
-		err = b.Write(path, bytes.Repeat([]byte("x"), 16000), 0)
-		if err != nil {
-			break
+	for i := 0; i < 160; i++ {
+		if err := b.Write(filepath.Join(dir, fmt.Sprintf("audit-%d.json", i)), bytes.Repeat([]byte("x"), 16000), 0); err != nil {
+			t.Fatal(err)
 		}
 	}
-	if !strings.Contains(err.Error(), "STORAGE_BUDGET_FULL") || b.used-b.baseline > metadataGrowthLimit {
-		t.Fatalf("budget: %v %+v", err, b)
+	if !b.overTarget() || b.used <= b.limit {
+		t.Fatal("target was enforced as admission control")
 	}
 	reopened, err := newStorageBudget(dir)
 	if err != nil || reopened.limit != ceiling || reopened.used != b.used {
@@ -63,9 +61,9 @@ func TestStorageBudgetReservesTaskCompletion(t *testing.T) {
 	if err := b.Write(path, []byte(`{}`), taskCompletionReserve); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; ; i++ {
+	for i := 0; i < 510; i++ {
 		if err := b.Write(filepath.Join(dir, fmt.Sprintf("other-%d.json", i)), make([]byte, 4096), 0); err != nil {
-			break
+			t.Fatal(err)
 		}
 	}
 	if err := b.Write(path, make([]byte, taskCompletionReserve), 0); err != nil {
@@ -73,7 +71,7 @@ func TestStorageBudgetReservesTaskCompletion(t *testing.T) {
 	}
 }
 
-func TestTaskBudgetRejectsBeforeLaunchAndOriginalIDStillQueries(t *testing.T) {
+func TestTaskAtFullTargetStillAdmitsNewIDAndDeduplicatesOldID(t *testing.T) {
 	r := &fakeTaskRemote{code: "done:0"}
 	m, _, c, _ := setupTasks(t, r)
 	defer m.Close()
@@ -86,16 +84,17 @@ func TestTaskBudgetRejectsBeforeLaunchAndOriginalIDStillQueries(t *testing.T) {
 	if _, status, err := m.Submit(req); err != nil || status != 200 {
 		t.Fatalf("same ID blocked at full budget: %d %v", status, err)
 	}
-	req.ID = "budget-rejected"
-	if _, status, err := m.Submit(req); status != 507 || err == nil {
-		t.Fatalf("new work admitted: %d %v", status, err)
+	req.ID = "budget-admitted"
+	if _, status, err := m.Submit(req); status != 202 || err != nil {
+		t.Fatalf("new task blocked by target: %d %v", status, err)
 	}
-	if _, err := os.Stat(m.path(req.ID, "")); !os.IsNotExist(err) {
-		t.Fatal("rejected request created task directory")
+	waitTask(t, m, req.ID)
+	if _, err := os.Stat(m.path(req.ID, "job.json")); err != nil {
+		t.Fatal(err)
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.launch != 1 || r.collect != 0 {
+	if r.launch != 2 || r.collect != 0 {
 		t.Fatalf("unexpected remote effects: launches=%d streams=%d", r.launch, r.collect)
 	}
 }
@@ -107,9 +106,9 @@ func TestActiveTaskCanRecordChangesAndFinishAtFullBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; ; i++ {
+	for i := 0; i < 510; i++ {
 		if err := m.budget.Write(filepath.Join(m.dir, fmt.Sprintf("fill-%d.json", i)), make([]byte, 4096), 0); err != nil {
-			break
+			t.Fatal(err)
 		}
 	}
 	for i := 0; i < 70; i++ {

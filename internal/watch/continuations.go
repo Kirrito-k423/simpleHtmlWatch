@@ -330,12 +330,16 @@ func (m *TaskManager) validateContinuationTask(job TaskJob) error {
 		return nil
 	}
 	c, ok := m.continuations[job.ContinuationID]
-	if !ok || c.Intents[job.ID] != continuationTaskHash(job.TaskRequest) || (c.State != "completed" && (!continuationOccupied(c) || c.GrantID != job.GrantID || c.Generation != job.Generation)) {
+	if !ok || c.Intents[job.ID] != job.requestHash() || (c.State != "completed" && (!continuationOccupied(c) || c.GrantID != job.GrantID || c.Generation != job.Generation)) {
 		return errors.New("CONTINUATION_STORE_MISSING_OR_CHANGED_FOR_TASK")
 	}
 	for _, planned := range c.Tasks {
-		if planned.ID == job.ID && planned.Shell == job.Shell {
-			return nil
+		if planned.ID == job.ID {
+			request := job.TaskRequest
+			request.Shell = planned.Shell
+			if continuationTaskHash(request) == job.requestHash() {
+				return nil
+			}
 		}
 	}
 	return errors.New("CONTINUATION_TASK_PLAN_CHANGED")

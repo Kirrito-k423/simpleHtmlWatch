@@ -9,8 +9,8 @@ import zipfile
 
 version = sys.argv[1]
 dist = Path(__file__).resolve().parents[1] / "dist"
-capabilities = ("accelerator-utilization-v1", "accelerator-occupancy-v1", "queue-residue-cleanup-v1", "forwarded-resource-identity-v1", "bounded-storage-v1", "task-result-stream-v1", "ssh-terminal-v1")
-forbidden = {"config.enc", "vault.key", "service.json", "app.lock", "known_hosts", "__pycache__", ".DS_Store", "storage-budget.json", "job.json", "reservations.json", "continuations.json", "result.tar.gz", ".cleanup"}
+capabilities = ("accelerator-utilization-v1", "accelerator-occupancy-v1", "queue-residue-cleanup-v1", "forwarded-resource-identity-v1", "bounded-storage-v1", "task-result-stream-v1", "ssh-terminal-v1", "completed-task-retention-v1")
+forbidden = {"config.enc", "vault.key", "service.json", "app.lock", "known_hosts", "__pycache__", ".DS_Store", "storage-budget.json", "job.json", "completed.json.gz", "reservations.json", "continuations.json", "result.tar.gz", ".cleanup"}
 checksums = {name: sha for sha, name in (line.split("  ", 1) for line in (dist / "SHA256SUMS").read_text().splitlines())}
 report = {"version": version, "capabilities": list(capabilities), "packages": []}
 for target in ("windows_amd64", "windows_arm64", "darwin_amd64", "darwin_arm64", "linux_amd64", "linux_arm64"):
@@ -41,7 +41,7 @@ for target in ("windows_amd64", "windows_arm64", "darwin_amd64", "darwin_arm64",
     assert b"SSH terminal" in binary or "SSH 终端".encode() in binary
     assert b"__shwTerminalStyle" in binary and b"watch-style-nonce" in binary
     assert b"archiveMode" in content[root + "/skills/cluster-task-controller/scripts/taskctl.py"]
-    assert b"growthLimitBytes" in binary and b"STORAGE_BUDGET_FULL" in binary
+    assert b"growthLimitBytes" in binary and b"prune-completed" in binary
     assert b"history-btn" not in binary, "removed history recorder still embedded"
     assert b"cleanup-policy" in content[root + "/skills/cluster-task-controller/scripts/taskctl.py"]
     assert b"forwarded-resource-identity-v1" in content[root + "/skills/cluster-task-controller/SKILL.md"]

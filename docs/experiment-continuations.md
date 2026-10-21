@@ -197,6 +197,6 @@ python3 skills/cluster-task-controller/scripts/taskctl.py --instance 实例名 c
 
 本机 `tasks/.cleanup/residue-*.json` 保留初始/最近诊断、日志末尾、判定原因、终止意图、回执和后续进程核查；远端 `$HOME/.simplehtmlwatch/cleanup/` 保存发送前的证据与意图。传输不确定、回执丢失或服务重启后，只查询原 boot ID/PID/启动身份，不重放信号。确认原进程退出后，由原等待单重新核对整组资源；进程退出不代表 NPU 已空闲、实验已启动或实验成功。
 
-日志权限为当前用户可读写，敏感字段做基本脱敏，不保存环境变量全集或 SSH 凭据。日志末尾是片段，不是完整日志或内存转储。本机日志上限 512 KiB，并共享 2 MB 元数据新增预算，不自动删除清理证据；满额或持久化失败时停止终止操作并报告，维护者归档日志后处理容量。完整单条日志通过 `cleanup-status --id` 读取，摘要最多列出最近 200 条。
+日志权限为当前用户可读写，敏感字段做基本脱敏，不保存环境变量全集或 SSH 凭据。日志末尾是片段，不是完整日志或内存转储。本机日志上限 512 KiB，并计入默认 2 MB 元数据软目标，不自动删除清理证据；满额或持久化失败时停止终止操作并报告，维护者归档日志后处理容量。完整单条日志通过 `cleanup-status --id` 读取，摘要最多列出最近 200 条。
 
 HTTP：`GET /api/tasks/cleanup` 查询策略、摘要和错误；`GET /api/tasks/cleanup?id=...` 读取完整记录；`POST /api/tasks/cleanup` 提交 `{ "enabled": true, "authorizationRef": "已有用户授权记录" }`。保留本机会话令牌、Origin/Host 和 runId 校验。能力缺失时客户端报错，不自动升级或重启中台。

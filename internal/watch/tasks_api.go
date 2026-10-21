@@ -44,7 +44,7 @@ func (s *Server) tasksAPI(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(405)
 			return
 		}
-		jsonResponse(w, 200, s.tasks.budget.Status())
+		jsonResponse(w, 200, s.tasks.StorageStatus())
 	case "/api/tasks/cleanup":
 		if r.Method == "POST" {
 			if id != "" {

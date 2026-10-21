@@ -124,7 +124,7 @@
       ${job.status === 'unknown' && !job.finishedAt ? '<div class="task-problem">结果未知会保留机器占用。先探测状态、读取日志，并核实远端进程及子进程已停止，再解除本地占用。<button data-task-action="resolve">已核实远端停止，解除占用…</button></div>' : ''}
       ${job.reservationId ? `<p class="task-log-hint">所属预约：${esc(job.reservationId)}。解除任务后，独立预约仍由原调用方管理。</p>` : ''}
       <details><summary>全部里程碑（${timeline.eventsFor(job).length}）</summary><ol class="task-event-list">${timeline.eventsFor(job).map(event => `<li><b>${symbols[event.type] || '◇'} ${esc(labels[event.type] || event.type)}</b><time>${esc(full(event.at))}</time><span>${esc(event.text)}</span></li>`).join('')}</ol></details>
-      <details><summary>提交的命令</summary><pre>${esc(job.shell)}</pre></details>
+      <details><summary>提交的命令</summary><pre>${esc(job.historyCompacted ? "较老的命令与事件详情已清理；状态、退出码和结果下载保留。" : job.shell)}</pre></details>
       ${state.logs?.id === job.id ? `<div class="task-log-pair"><div><b>stdout · 最后 16 KiB</b><pre>${esc(state.logs.stdout || '（空）')}</pre></div><div><b>stderr · 最后 16 KiB</b><pre>${esc(state.logs.stderr || '（空）')}</pre></div></div>` : '<p class="task-log-hint">点击“读取日志末尾”查询远端；这里不会把日志内容误当作退出证据。</p>'}`;
   }
   function renderMessage() {
@@ -141,7 +141,7 @@
     panel.querySelector('#task-stats').innerHTML = `<span><b>${state.machines.length}</b> 注册机器</span><span><b>${online}</b> 监控在线</span><span><b>${state.ready.length}</b> ready</span><span><b>${running}</b> 运行或发送</span><span><b>${unknown}</b> 结果未知</span><span><b>${completed}</b> 已结束</span>`;
     if (state.storage) {
       const used = Math.max(0, state.storage.bytes - state.storage.baselineBytes);
-      panel.querySelector('#task-storage').textContent = `元数据新增 ${(used / 1000000).toFixed(2)} / ${(state.storage.growthLimitBytes / 1000000).toFixed(1)} MB · 结果按需下载`;
+      panel.querySelector('#task-storage').textContent = `元数据新增 ${(used / 1000000).toFixed(2)} / ${(state.storage.growthLimitBytes / 1000000).toFixed(1)} MB · 自动收缩已完成详情，不因预算拒绝任务 · 结果按需下载`;
     }
     readyOptions(); renderBoard(); renderDetail(); renderMessage();
   }

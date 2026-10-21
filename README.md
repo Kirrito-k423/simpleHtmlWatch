@@ -8,7 +8,7 @@
 
 ## 开箱即用
 
-整机占用小时统计与任务中台的占卡残留诊断、清理开关已合并到同一程序包。Windows 安装、保留数据升级及两项功能入口见 [Windows 使用说明](WINDOWS-INSTALL.md)；在 Releases 中选择 v0.7.0 或更新版本的对应平台包。
+整机占用小时统计与任务中台的占卡残留诊断、清理开关已合并到同一程序包。Windows 安装、保留数据升级及两项功能入口见 [Windows 使用说明](WINDOWS-INSTALL.md)；在 Releases 中选择 v0.7.1 或更新版本的对应平台包。
 
 1. 从 [Releases](https://github.com/Kirrito-k423/simpleHtmlWatch/releases/latest) 下载 `windows_amd64.zip`（普通 Intel / AMD Windows 电脑）；Windows ARM 设备选择 `windows_arm64.zip`。
 2. 解压，双击 `simpleHtmlWatch.exe`，浏览器自动打开本机页面。**保留程序的控制台窗口，关闭它会停止采集。**
@@ -114,7 +114,7 @@ v0.6.0 增加 [实验等待与原 AI 对话继续](docs/experiment-continuations
 
 ## 空间预算
 
-完整命令输出历史与自动结果缓存已移除。任务结果按需从远端直接下载；NPU 小时汇总以 gzip 日文件保存，保留最多 30 天、上限 2 MB。任务、预约、等待单及诊断共享持久化的 2 MB 新增预算，满额停止新增写入，保留旧任务身份与占用。目标为 30 天常驻新增尽量不超过 5 MB；用户主动下载、人工备份和独立 Netdata Agent 需单独管理。详见 [空间设计与清理边界](docs/storage.md)。
+完整命令输出历史与自动结果缓存已移除。任务结果按需从远端直接下载；NPU 小时汇总以 gzip 日文件保存，保留最多 30 天、上限 2 MB。元数据默认采用 2 MB 新增软目标，清理较老已完成详情，通常保留最近 100 条；状态、退出码、下载定位与去重摘要压缩保存。满额也不因预算拒绝新任务，运行中、unknown 和有效预约保留。目标为 30 天常驻新增尽量不超过 5 MB；用户主动下载、人工备份和独立 Netdata Agent 需单独管理。详见 [空间设计与清理边界](docs/storage.md)。
 
 ## 频繁出现「未返回退出状态」
 

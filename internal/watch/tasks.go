@@ -38,6 +38,8 @@ type TaskEvent struct {
 }
 
 type TaskJob struct {
+	HistoryCompacted bool   `json:"historyCompacted,omitempty"`
+	RequestSHA256    string `json:"requestSHA256,omitempty"`
 	TaskRequest
 	SelectedMachineID string      `json:"selectedMachineId"`
 	ResourceKey       string      `json:"resourceKey,omitempty"`
@@ -151,6 +153,7 @@ type TaskManager struct {
 	monitor              *Monitor
 	remote               taskRemote
 	budget               *storageBudget
+	retentionError       string
 	ctx                  context.Context
 	cancel               context.CancelFunc
 	wg                   sync.WaitGroup
@@ -185,6 +188,10 @@ func newTaskManager(store *Store, monitor *Monitor, remote taskRemote) (*TaskMan
 		cancel()
 		return nil, err
 	}
+	if err := m.loadCompleted(); err != nil {
+		cancel()
+		return nil, err
+	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		cancel()
@@ -196,6 +203,11 @@ func newTaskManager(store *Store, monitor *Monitor, remote taskRemote) (*TaskMan
 		}
 		b, err := os.ReadFile(filepath.Join(dir, entry.Name(), "job.json"))
 		if err != nil {
+			if os.IsNotExist(err) {
+				if old := m.jobs[entry.Name()]; old != nil && old.HistoryCompacted {
+					continue
+				}
+			}
 			// A group launch intent is persisted before creating job.json. A
 			// crash in that gap keeps the grant uncertain and queryable.
 			uncertain := false
@@ -220,7 +232,7 @@ func newTaskManager(store *Store, monitor *Monitor, remote taskRemote) (*TaskMan
 		}
 		if job.ReservationID != "" {
 			r, ok := m.reservations[job.ReservationID]
-			if !ok || len(r.MachineIDs) > 0 && (r.IntentSHA256 != continuationTaskHash(job.TaskRequest) || r.GrantID != job.ReservationGrantID || r.Generation != job.ReservationGeneration) {
+			if !ok || len(r.MachineIDs) > 0 && (r.IntentSHA256 != job.requestHash() || r.GrantID != job.ReservationGrantID || r.Generation != job.ReservationGeneration) {
 				cancel()
 				return nil, errors.New("RESERVATION_STORE_MISSING_FOR_TASK")
 			}
@@ -243,8 +255,15 @@ func newTaskManager(store *Store, monitor *Monitor, remote taskRemote) (*TaskMan
 				return nil, err
 			}
 		}
+		if archived := m.jobs[job.ID]; archived != nil && archived.requestHash() != job.requestHash() {
+			cancel()
+			return nil, errors.New("COMPLETED_TASK_ID_CONFLICT")
+		}
 		m.jobs[job.ID] = &job
 	}
+	m.retainCompletedLocked()
+	m.wg.Add(1)
+	go m.retainCompletedLoop()
 	for id, job := range m.jobs {
 		if job.FinishedAt == nil {
 			m.wg.Add(1)
@@ -373,7 +392,7 @@ func (m *TaskManager) Submit(request TaskRequest) (TaskJob, int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if old, ok := m.jobs[request.ID]; ok {
-		if old.TaskRequest != request {
+		if old.requestHash() != continuationTaskHash(request) {
 			return TaskJob{}, 409, errors.New("同一任务 ID 不能对应不同请求")
 		}
 		return copyTask(old), 200, nil
@@ -415,10 +434,7 @@ func (m *TaskManager) Submit(request TaskRequest) (TaskJob, int, error) {
 	now := time.Now()
 	job := &TaskJob{TaskRequest: request, SelectedMachineID: selected.ID, ResourceKey: machineResource(host), MachineName: selected.Name, Host: host.Host, Port: host.Port, Username: username, Status: "dispatching", CreatedAt: now, UpdatedAt: now, ArchiveMode: "remote"}
 	taskEvent(job, now, "dispatching", "任务已受理，分配至 "+selected.Name)
-	encoded, _ := json.Marshal(job)
-	if err := m.budget.Check(m.path(job.ID, "job.json"), encoded, taskCompletionReserve); err != nil {
-		return TaskJob{}, 507, err
-	}
+	m.retainCompletedLocked()
 	if err := m.continuationIntentLocked(request); err != nil {
 		return TaskJob{}, 500, err
 	}

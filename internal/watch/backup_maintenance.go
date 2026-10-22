@@ -193,6 +193,13 @@ func prepareUpgradeBackup(dir string, previous ServiceInfo) error {
 	if err = copyCore(old, filepath.Join(stage, "runtime", "simpleHtmlWatch")); err != nil {
 		return err
 	}
+	stagedProgram, err := readBackupProgram(filepath.Join(stage, "runtime", "simpleHtmlWatch"))
+	if err != nil {
+		return err
+	}
+	if backupHash(stagedProgram) != previous.BuildID {
+		return errors.New("备份期间旧程序改变，未采用新构建")
+	}
 	if err = os.Chmod(filepath.Join(stage, "runtime", "simpleHtmlWatch"), 0700); err != nil {
 		return err
 	}

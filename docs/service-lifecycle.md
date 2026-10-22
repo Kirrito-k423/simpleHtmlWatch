@@ -44,6 +44,8 @@ python3 skills/cluster-task-controller/scripts/taskctl.py --instance canary read
 
 ## 计划升级或迁移端口
 
+v0.8.1 在采用不同构建前自动保存并校验旧程序与核心状态。本机固定保留一份回滚快照和一份当前程序缓存。首次升级从新版解压目录运行，保留旧程序原路径。`-backup-archive-dir <外置仓库>` 配置自动加密归档，默认最多3份/30天且保护最近2份已验证快照。外置失联保留本机回滚。状态及恢复见 [备份归档](backup-archive.md)。不要再把每次升级全量复制到 `service-logs/` 或 `maintenance-backups/`。
+
 先核对 `-status` 输出的实例、数据目录、程序路径和版本，通知使用该实例的客户端进入维护窗口，由唯一维护者正常停止准确的旧进程。然后：
 
 ```sh

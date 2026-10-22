@@ -41,6 +41,7 @@ jobs:
       - run: node --check web/metric-plots.js
       - run: node --check web/metrics.js
       - run: node --check web/utilization.js
+      - run: node --check web/idle-ranking.js
       - run: node --check web/ssh-terminal.js
       - run: node --test tests/*.test.cjs
   browser:

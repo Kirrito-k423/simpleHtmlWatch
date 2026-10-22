@@ -8,6 +8,8 @@
 
 ## 开箱即用
 
+v0.8.1 包含五档空闲排序和自动升级备份。升级前自动保存旧程序及核心状态，本机固定一份回滚快照；可配置外置加密归档，最多3份/30天且保护最近2份。详见 [备份归档与恢复](docs/backup-archive.md)。
+
 整机占用小时统计与任务中台的占卡残留诊断、清理开关已合并到同一程序包。Windows 安装、保留数据升级及两项功能入口见 [Windows 使用说明](WINDOWS-INSTALL.md)；在 Releases 中选择 v0.7.1 或更新版本的对应平台包。
 
 1. 从 [Releases](https://github.com/Kirrito-k423/simpleHtmlWatch/releases/latest) 下载 `windows_amd64.zip`（普通 Intel / AMD Windows 电脑）；Windows ARM 设备选择 `windows_arm64.zip`。

@@ -12,7 +12,7 @@ def category(relative):
     parts = relative.parts
     if relative.name == "result.tar.gz":
         return "result_archives"
-    for name in ("utilization", "tasks", "service-logs", "agent", "offline", "maintenance-backups", "bin"):
+    for name in ("utilization", "tasks", "service-logs", "agent", "offline", "maintenance-backups", "rollback", "backup-maintenance", "occupancy", "exports", "bin"):
         if name in parts:
             return name
     return "other"
@@ -28,7 +28,7 @@ def measure(root):
             except FileNotFoundError:
                 # An atomic replacement scratch file can disappear during a scan.
                 # Retrying the whole scan is handled by the caller.
-                if name.startswith((".watch-", ".archive-")):
+                if name.startswith((".watch-", ".archive-", ".backup-", ".upgrade-stage-", ".restore-drill-")):
                     continue
                 raise
             is_directory = path.is_dir() and not path.is_symlink()

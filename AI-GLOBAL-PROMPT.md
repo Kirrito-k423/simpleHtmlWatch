@@ -1,5 +1,7 @@
 # simpleHtmlWatch 全局 Prompt（Windows 优先）
 
+> v0.8.1 升级由唯一维护者在已有授权内执行，采用不同构建前程序自动保存旧程序和核心状态。使用持久化外置归档策略，不在本机手工堆积多代副本；外置失联保留最近本机回滚并报告，不能自动降级或重启。恢复钥匙不发给AI、不放发布包；维护前阅读 `docs/backup-archive.md`，用 `-backup-status` 查看回滚和归档状态。
+
 > 用户要求自动等待并继续实验时，发现 `experiment-continuations-v1` 后用包内 Skill 登记 waiting_resources，保存准确原对话 ID、检查点、授权和固定任务计划。桌面原对话使用宿主 heartbeat；归属已核实的 App Server 可主动桥接。登记与唤醒入口是两步，不能只登记就声称会自动继续。恢复先查原 ID，领取当前代再执行；未知请求不重放、已领取资源不超时释放。原授权范围内不重复确认，状态不变时静默，完成后核对实验判据并停用心跳。
 
 将下面这一段复制到各 AI 工具的全局指令中，并让已有会话重新读取。它不会自动安装或修改任何 AI 工具配置。需要客户端脚本时，使用本发布包的 `skills/cluster-task-controller/scripts/taskctl.py`（Python 3）。

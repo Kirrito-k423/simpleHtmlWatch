@@ -16,6 +16,7 @@ for target in windows/amd64 windows/arm64 darwin/arm64 darwin/amd64 linux/amd64 
   mkdir -p "$folder/scripts"
   cp scripts/storage_audit.py "$folder/scripts/"
   mkdir -p "$folder/docs"
+  cp docs/backup-archive.md "$folder/docs/"
   cp docs/dashboard.png docs/storage.md docs/troubleshooting.md docs/task-controller.md docs/service-lifecycle.md docs/netdata.md docs/utilization.md docs/idle-ranking.md docs/experiment-continuations.md docs/atomic-group-reservations.md "$folder/docs/"
   mkdir -p "$folder/skills"
   python3 - "$folder/skills" <<'PY'

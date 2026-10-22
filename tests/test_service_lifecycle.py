@@ -176,6 +176,54 @@ class LifecycleTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("已固定构建 test-v1", result.stderr)
 
+    def test_adoption_automatically_archives_and_restores_previous_program(self):
+        import hashlib
+        external = Path(self.temp.name) / "外置备份"
+        first = self.launch(extra=("-backup-archive-dir", str(external)))
+        before = self.running(first)
+        self.stop(first)
+        second = self.launch(version="test-v2", extra=("-adopt-build",))
+        after = self.running(second)
+        self.assertIn("upgrade-backup-archive-v1", after["capabilities"])
+        self.stop(second)
+        result = self.cli("-backup-status", version="test-v2")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        status = json.loads(result.stdout)
+        self.assertFalse(status.get("lastArchiveError"))
+        local = status["localRollback"]
+        self.assertEqual(len(list(external.glob("upgrade-*.shwb"))), 1)
+        restored = Path(self.temp.name) / "实际恢复"
+        result = self.cli("-restore-backup", local["archivePath"], "-restore-dir", str(restored), version="test-v2")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        old_binary = (restored / "runtime/simpleHtmlWatch").read_bytes()
+        self.assertEqual(hashlib.sha256(old_binary).hexdigest(), before["buildId"])
+        self.assertEqual(json.loads((restored / "data/service.json").read_text())["buildId"], before["buildId"])
+        third = self.launch(version="test-v2", extra=("-adopt-build",))
+        self.running(third)
+        self.stop(third)
+        self.assertEqual(len(list(external.glob("upgrade-*.shwb"))), 1)
+        self.assertEqual(sorted(p.name for p in (self.directory / "rollback").iterdir()), ["current-program", "last.shwb"])
+
+    def test_legacy_archive_cli_verifies_before_removing_source(self):
+        root = (Path(self.temp.name) / "历史资料").resolve()
+        source = root / "旧升级"
+        source.mkdir(parents=True)
+        (source / "data.txt").write_text("保留并验证", encoding="utf-8")
+        external = Path(self.temp.name) / "归档库"
+        result = self.cli("-archive-backup", str(source), "-backup-source-root", str(root),
+                          "-backup-archive-dir", str(external), "-remove-archived-source")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads(result.stdout)
+        self.assertFalse(source.exists())
+        self.assertEqual(receipt["files"], 1)
+        result = self.cli("-verify-backup", receipt["archivePath"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.directory / "service.json").exists())
+        restored = Path(self.temp.name) / "restore"
+        result = self.cli("-restore-backup", receipt["archivePath"], "-restore-dir", str(restored))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((restored / "data.txt").read_text(encoding="utf-8"), "保留并验证")
+
     def test_unrelated_http_service_on_old_port_is_not_taken_over(self):
         first = self.launch()
         info = self.running(first)

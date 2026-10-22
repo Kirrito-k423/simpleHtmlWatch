@@ -62,7 +62,7 @@ func TestBackupEncryptedRoundtripAndDeletion(t *testing.T) {
 	}
 	after, _ := backupTree(restored)
 	if !slices.Equal(before, after) {
-		t.Fatal("restored tree differs")
+		t.Fatal("restored tree differs:", backupTreeDifference(before, after))
 	}
 	if _, err = verifyBackup(path, key, restored); err == nil {
 		t.Fatal("overwrote existing restore")

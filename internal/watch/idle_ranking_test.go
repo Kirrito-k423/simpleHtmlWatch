@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -240,7 +241,7 @@ func TestIdleExportScheduleAPIAndFailures(t *testing.T) {
 		}
 	}
 	info, _ := os.Stat(r.exportPath())
-	if info.Mode().Perm()&0077 != 0 {
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0077 != 0 {
 		t.Fatal("export not private")
 	}
 	app := NewServer(store, monitor, nil, nil, "127.0.0.1:9999")

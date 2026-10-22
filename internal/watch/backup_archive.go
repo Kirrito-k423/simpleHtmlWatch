@@ -144,15 +144,27 @@ func backupTree(root string) ([]BackupEntry, error) {
 		if path == root {
 			return nil
 		}
-		info, err := d.Info()
+		info, err := os.Lstat(path)
 		if err != nil {
 			return err
 		}
 		if !info.IsDir() && !info.Mode().IsRegular() {
 			return fmt.Errorf("备份拒绝链接或特殊文件：%s", path)
 		}
+		// Directory enumeration metadata can be cached on Windows. Read through
+		// a fresh handle so repeated snapshots and restored timestamps agree.
+		f, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		info, err = f.Stat()
+		if err != nil {
+			f.Close()
+			return err
+		}
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
+			f.Close()
 			return err
 		}
 		e := BackupEntry{Path: filepath.ToSlash(rel), Directory: info.IsDir(), Mode: uint32(info.Mode().Perm()), ModifiedNS: info.ModTime().UnixNano()}
@@ -160,11 +172,8 @@ func backupTree(root string) ([]BackupEntry, error) {
 			e.Size = info.Size()
 			total += e.Size
 			if total > backupRawLimit {
+				f.Close()
 				return errors.New("备份原始内容超过512 MiB上限")
-			}
-			f, err := os.Open(path)
-			if err != nil {
-				return err
 			}
 			h := sha256.New()
 			_, err = io.Copy(h, f)
@@ -176,6 +185,10 @@ func backupTree(root string) ([]BackupEntry, error) {
 				return ce
 			}
 			e.SHA256 = hex.EncodeToString(h.Sum(nil))
+		} else {
+			if err = f.Close(); err != nil {
+				return err
+			}
 		}
 		entries = append(entries, e)
 		if len(entries) > 100000 {
@@ -271,7 +284,7 @@ func sealBackup(root, kind string, key []byte) ([]byte, BackupManifest, error) {
 		return nil, manifest, err
 	}
 	if !slices.Equal(current, manifest.Entries) {
-		return nil, manifest, errors.New("备份期间目录变化，保留原件")
+		return nil, manifest, fmt.Errorf("备份期间目录变化，保留原件：%s", backupTreeDifference(manifest.Entries, current))
 	}
 	aead, err := archiveAEAD(key)
 	if err != nil {
@@ -443,7 +456,7 @@ func verifyBackup(path string, key []byte, restore string) (BackupManifest, erro
 			return m, err
 		}
 		if !slices.Equal(actual, m.Entries) {
-			return m, errors.New("恢复演练的目录或文件与清单不一致")
+			return m, fmt.Errorf("恢复演练的目录或文件与清单不一致：%s", backupTreeDifference(m.Entries, actual))
 		}
 		if err = os.Chmod(restore, os.FileMode(m.RootMode)); err != nil {
 			return m, err
@@ -453,6 +466,15 @@ func verifyBackup(path string, key []byte, restore string) (BackupManifest, erro
 		}
 	}
 	return m, nil
+}
+
+func backupTreeDifference(expected, actual []BackupEntry) string {
+	for i := 0; i < min(len(expected), len(actual)); i++ {
+		if expected[i] != actual[i] {
+			return fmt.Sprintf("条目%d，期望%+v，实际%+v", i, expected[i], actual[i])
+		}
+	}
+	return fmt.Sprintf("条目数%d / %d", len(expected), len(actual))
 }
 
 func writeBackupArchive(source, destination, kind string, key []byte) (BackupReceipt, error) {

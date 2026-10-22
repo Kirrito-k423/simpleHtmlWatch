@@ -9,8 +9,8 @@ import zipfile
 
 version = sys.argv[1]
 dist = Path(__file__).resolve().parents[1] / "dist"
-capabilities = ("accelerator-utilization-v1", "accelerator-occupancy-v1", "queue-residue-cleanup-v1", "forwarded-resource-identity-v1", "bounded-storage-v1", "task-result-stream-v1", "ssh-terminal-v1", "completed-task-retention-v1")
-forbidden = {"config.enc", "vault.key", "service.json", "app.lock", "known_hosts", "__pycache__", ".DS_Store", "storage-budget.json", "job.json", "completed.json.gz", "reservations.json", "continuations.json", "result.tar.gz", ".cleanup"}
+capabilities = ("accelerator-utilization-v1", "accelerator-occupancy-v1", "queue-residue-cleanup-v1", "forwarded-resource-identity-v1", "bounded-storage-v1", "task-result-stream-v1", "ssh-terminal-v1", "completed-task-retention-v1", "idle-machine-ranking-v1")
+forbidden = {"config.enc", "vault.key", "service.json", "app.lock", "known_hosts", "__pycache__", ".DS_Store", "storage-budget.json", "job.json", "completed.json.gz", "reservations.json", "continuations.json", "result.tar.gz", ".cleanup", "recent.json.gz", "idle-ranking.json"}
 checksums = {name: sha for sha, name in (line.split("  ", 1) for line in (dist / "SHA256SUMS").read_text().splitlines())}
 report = {"version": version, "capabilities": list(capabilities), "packages": []}
 for target in ("windows_amd64", "windows_arm64", "darwin_amd64", "darwin_arm64", "linux_amd64", "linux_arm64"):
@@ -30,7 +30,7 @@ for target in ("windows_amd64", "windows_arm64", "darwin_amd64", "darwin_arm64",
         parts = PurePosixPath(name).parts
         assert not name.startswith("/") and ".." not in parts and parts[0] == root
         assert not forbidden.intersection(parts) and not name.endswith(".pyc"), "发布包包含敏感文件或缓存"
-    required = ["README.md", "THIRD-PARTY-NOTICES.md", "AI-START-HERE.md", "AI-GLOBAL-PROMPT.md", "docs/utilization.md", "docs/storage.md", "docs/experiment-continuations.md", "docs/atomic-group-reservations.md", "docs/service-lifecycle.md", "scripts/storage_audit.py", "skills/cluster-task-controller/SKILL.md", "skills/cluster-task-controller/scripts/taskctl.py", "skills/simplehtmlwatch-netdata/SKILL.md", "skills/simplehtmlwatch-netdata/scripts/metricsctl.py"]
+    required = ["README.md", "THIRD-PARTY-NOTICES.md", "AI-START-HERE.md", "AI-GLOBAL-PROMPT.md", "docs/utilization.md", "docs/idle-ranking.md", "docs/storage.md", "docs/experiment-continuations.md", "docs/atomic-group-reservations.md", "docs/service-lifecycle.md", "scripts/storage_audit.py", "skills/cluster-task-controller/SKILL.md", "skills/cluster-task-controller/scripts/taskctl.py", "skills/simplehtmlwatch-netdata/SKILL.md", "skills/simplehtmlwatch-netdata/scripts/metricsctl.py"]
     exe = "simpleHtmlWatch.exe" if target.startswith("windows") else "simpleHtmlWatch"
     required.append(exe)
     if target.startswith("windows"):

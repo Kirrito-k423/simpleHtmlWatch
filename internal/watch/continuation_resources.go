@@ -138,6 +138,16 @@ func parseNPUResources(output string) ([]npuDevice, error) {
 	if !processTable || !noProcesses {
 		return nil, errors.New("npu_process_unknown")
 	}
+	reading, err := parseNPUUtilization(output)
+	if err != nil {
+		return nil, errors.New("npu_devices_incomplete")
+	}
+	if !reading.occupancyKnown {
+		return nil, errors.New("npu_process_unknown")
+	}
+	if reading.occupied {
+		return nil, errors.New("npu_process_busy")
+	}
 	if len(devices) == 0 {
 		return nil, errors.New("npu_devices_unknown")
 	}

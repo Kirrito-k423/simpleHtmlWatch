@@ -12,18 +12,19 @@ import (
 )
 
 type Server struct {
-	metrics   *Metrics
-	service   *ServiceInfo
-	executor  *Executor
-	terminals *terminalManager
-	tasks     *TaskManager
-	store     *Store
-	monitor   *Monitor
-	trust     *TrustStore
-	assets    fs.FS
-	host      string
-	token     string
-	mu        sync.Mutex
+	idleRanking *IdleRanking
+	metrics     *Metrics
+	service     *ServiceInfo
+	executor    *Executor
+	terminals   *terminalManager
+	tasks       *TaskManager
+	store       *Store
+	monitor     *Monitor
+	trust       *TrustStore
+	assets      fs.FS
+	host        string
+	token       string
+	mu          sync.Mutex
 }
 
 func NewServer(s *Store, m *Monitor, t *TrustStore, assets fs.FS, host string) *Server {
@@ -156,6 +157,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	http.FileServer(http.FS(s.assets)).ServeHTTP(w, r)
 }
 func (s *Server) api(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/api/idle-ranking" {
+		s.idleRankingAPI(w, r)
+		return
+	}
 	if strings.HasPrefix(r.URL.Path, "/api/continuations") {
 		s.continuationsAPI(w, r)
 		return
@@ -278,6 +283,9 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) Close() {
+	if s.idleRanking != nil {
+		s.idleRanking.Close()
+	}
 	s.terminals.Close()
 	if s.tasks != nil {
 		s.tasks.Close()

@@ -45,3 +45,7 @@ python3 "$SKILL_DIR/scripts/metricsctl.py" --instance <实例名> utilization --
 响应为每机器 `hours`、一周同小时聚合 `hourOfDay`、`lowWindows`，并包含型号、厂商指标口径、时间范围、存储状态。在机器整窗口及每小时／同小时聚合中新增 `occupiedPercent`、`occupancyCoveragePercent`、`occupancyObservedSeconds`；原有均值字段保留。窗口均值按全部有效时长加权，同小时跨日聚合也按有效时长加权。机器改地址或型号时会分成不同统计行，报告时保留来源，不自行把同名行加在一起。
 
 客户端 `utilizationComplete` 和 `occupancyComplete` 分别判断所有返回机器窗口值有效、对应覆盖率至少 90%、无存储错误，`complete` 是两者都满足。退出码 0 表示两项均完整；3 表示任意一项数据不全／没有数据／存储错误；2 表示参数、身份或请求失败。退出码 3 的有效数据仍可使用，但不能宣称完整历史。升级初期即使旧算力数据完整，占用历史也可能不足，不应重启或换版本。
+
+## 滚动空闲排序
+
+v0.8.0 另存最近6小时的5分钟占用桶，用于五档滚动排序和半小时JSON导出；原小时统计和API口径保留，旧小时桶不拆分补回。细粒度历史与当前资源检查、容量及客户端规则见 [空闲机器排序](idle-ranking.md)。

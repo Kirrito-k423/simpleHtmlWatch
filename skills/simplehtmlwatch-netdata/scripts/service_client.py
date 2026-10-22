@@ -86,6 +86,8 @@ class Client:
         if args.action == "utilization":
             self.required.add("accelerator-utilization-v1")
             self.required.add("accelerator-occupancy-v1")
+        elif args.action == "idle-ranking":
+            self.required.add("idle-machine-ranking-v1")
         elif args.action != "discover":
             self.required.add("netdata-metrics-v1")
         self.url = self.run_id = self.token = None
@@ -138,7 +140,7 @@ class Client:
         return live
 
     def api(self, path):
-        if path.split("?", 1)[0] not in ("/api/config", "/api/status", "/api/metrics", "/api/utilization"):
+        if path.split("?", 1)[0] not in ("/api/config", "/api/status", "/api/metrics", "/api/utilization", "/api/idle-ranking"):
             raise ValueError("只允许机器清单、状态、系统指标与利用率汇总接口")
         info = self.discover()
         url, run_id = info["url"], info["runId"]

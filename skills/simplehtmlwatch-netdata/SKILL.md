@@ -1,6 +1,6 @@
 ---
 name: simplehtmlwatch-netdata
-description: 通过本机 simpleHtmlWatch 查看集群 CPU、内存、磁盘、网络指标，以及按机器汇总的 NPU 小时算力利用率、占用时长比例、昨天或近一周分布与低负载时段。用户要求集群监控、削峰填谷、按机器或任务查询、检查 Agent 接入或将监控能力交给其他 AI 时使用。先核验实例身份；日常查询只读，部署须有维护授权。
+description: 通过本机 simpleHtmlWatch 查看集群 CPU、内存、磁盘、网络指标，以及按机器汇总的 NPU 小时算力利用率、占用时长比例、昨天或近一周分布、低负载时段、五档空闲排序与当前资源检查。用户要求集群监控、削峰填谷、按机器或任务查询、检查 Agent 接入或将监控能力交给其他 AI 时使用。先核验实例身份；日常查询只读，部署须有维护授权。
 ---
 
 # 集群系统指标接入
@@ -59,6 +59,20 @@ python3 "$SKILL_DIR/scripts/metricsctl.py" --instance <实例名> utilization --
 - `utilizationComplete`、`occupancyComplete` 分别表示所有返回机器对应窗口值有效、覆盖至少 90%、无存储错误，`complete` 要求两项都满足，不能替代逐小时各自覆盖率。退出码 3 表示任意历史不全／没有数据／存储错误；有效部分仍可报告。旧算力数据完整但新增占用历史不足也会返回 3；未采集的过去无法补回。
 - 独立压缩小时桶目录最多 2 MB、保留含今天的最近 30 天，先淘汰过期或最早日期；不保存原始采样或单卡明细。结合 `bytes`、`limitBytes`、`storageError` 判断持久化是否正常。更完整的口径见发布包 `docs/utilization.md`。
 
+## 五档空闲排序与当前资源检查
+
+发现并核验 `idle-machine-ranking-v1` 后，可只读查询，不依赖Netdata：
+
+```sh
+python3 "$SKILL_DIR/scripts/metricsctl.py" --instance <实例名> idle-ranking --group "<机器组>" --model "<型号>" --devices-per-machine 16 --min-free-hbm-mb 32768 --max-sample-age 90
+```
+
+示例设备数及HBM须按真实任务修改。五档为最近≥3h/2h/1h观测零占用、最近1h非零且<15%、最近1h为15%–25%；最近6小时的5分钟桶支持滚动窗口，旧小时桶不拆分补回。各相关小时覆盖≥90%才授予相应历史档位。`tier:0` 表示未分档，原因在 `historyReason`，未知不补空闲。
+
+`eligible` 是本次当前资源检查（无NPU进程、算力为0、采样完整新鲜、HBM/设备条件满足、没有中台任务/预约/等待单占用），`recommended` 还要求历史档位1–5。按 `rank` 选择时须限定授权硬件与机器组；同物理资源按 `resourceKey` 去重。默认每设备至少1024 MB空闲HBM、不限制型号/设备数；不能据此判断任务一定放得下，必须传入真实资源需求。
+
+启动及北京时间整点、半点更新 `<discover.dataDir>/exports/idle-ranking.json`，固定原子替换。API每次重新检查已有监控快照，返回 `generatedAt`、`historyThrough`、`exportedAt`、`nextRefreshAt`，不要混淆历史截止、文件更新时间和当前采样时间。所有响应都有 `requiresLiveCheck:true`；文件过期、身份不符或实时状态未知时不能直接部署，即使新文件也须在使用前重新检查并走原预约/提交协议。查询本身不预留或执行任务，缺能力时报告维护者，不重启。启动后5分钟历史尚未积累完整时返回未分档是正常结果。退出码0为读取成功（可没有候选），3为历史保存或导出异常，2为参数/身份/请求失败。详见发布包 `docs/idle-ranking.md`。
+
 ## 解释图表
 
 - CPU：`system.cpu` 的非 idle 维度。每条线是该维度占比，单条 user 曲线不是总利用率。
@@ -76,3 +90,5 @@ python3 "$SKILL_DIR/scripts/metricsctl.py" --instance <实例名> utilization --
 主机密钥改变时先核实可信指纹；认证失效时请维护者更新本地凭据文件，不让用户把密码贴到聊天中。不通过盲目密码尝试、关闭主机校验或修改训练任务绕过问题。实际查询四个图表成功后才能报告接入完成；保留失败目标和原因。
 
 需要提交/回收长任务时，读取 `cluster-task-controller` Skill。指标客户端不执行任务、不解除未知占用、不管理正式实例生命周期。分发时只复制本 Skill 目录或发布的 Skill zip，不包含机器清单、SSH 密钥、Agent 数据库或运行实例目录。
+
+独立分发的Skill内附 [空闲排序协议](references/idle-ranking.md)，包含JSON字段、门槛和领用流程。

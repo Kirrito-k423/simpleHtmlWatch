@@ -35,6 +35,14 @@ v0.7.1 在保留以下能力的基础上增加空间预算：本机跳板多机�
 
 AI 使用已更新的 `simplehtmlwatch-netdata` Skill，先 discover 核对 `accelerator-utilization-v1` 和 `accelerator-occupancy-v1`，再执行 `metricsctl.py --instance <实例名> utilization --period yesterday` 或 `--period week --group <机器组>`。并列报告平均算力、整机占用时长比例及各自覆盖率；任意卡有 NPU 进程就计占用，跨机器／跨日按对应观测时长加权。退出码 3 代表任意一项历史不全，不是服务宕机。时间按北京时间，旧占用历史和未知状态不补零；低谷不证明当前资源允许部署。详细口径见 [利用率说明](docs/utilization.md)。
 
+## 五档空闲机器排序
+
+v0.8.0 新增 `idle-machine-ranking-v1`。点击“空闲机器排序”查看五档历史偏好、当前资源检查、滚动占用率与覆盖率，并按机器组、型号、设备数及HBM筛选。启动及北京时间整点、半点原子保存 `<discover.dataDir>/exports/idle-ranking.json`，网页打开时每10秒检查最新监控。
+
+外部AI使用更新后的 `taskctl.py --instance <实例名> idle-ranking` 或 `metricsctl.py --instance <实例名> idle-ranking`，按真实任务增加 `--group`、`--model`、`--devices-per-machine`、`--min-free-hbm-mb` 和 `--max-sample-age`。`eligible` 与 `recommended` 分开；默认检查无进程、算力为0、每设备至少1024 MB空闲HBM，但不替代具体任务的型号/卡数/容量要求。旧 `ready` 和不指定机器的自动提交仍采用原规则，使用排序须明确选机并通过原预约/提交协议。
+
+细粒度历史从升级后积累，不把旧小时桶拆成5分钟；历史不足、覆盖不全或当前采样未知均明确显示。所有文件带 `requiresLiveCheck:true`：实际领用前重新核验同一实例并预约，不把半小时文件当独占许可。API/页面报告导出和历史保存错误，异常不触发客户端重启。完整口径、JSON字段、边界与容量见 [空闲排序说明](docs/idle-ranking.md)。
+
 ## 常驻排队清理
 
 在浏览器进入「任务中台」，点击顶部「常驻排队清理」开关即可启用，页面自动保存操作授权记录，无需 Python 或命令。展开「诊断与清理日志」可查看判定、进程日志片段、清理回执和完整证据，并下载单条记录。开关以服务端保存结果为准；读写不确定时只查询，不自动重试写入。

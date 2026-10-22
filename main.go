@@ -109,6 +109,9 @@ func start() error {
 	}
 	defer app.Close()
 	app.SetServiceInfo(lease.Info)
+	if err := app.EnableIdleRanking(); err != nil {
+		return err
+	}
 	if err := lease.Publish(); err != nil {
 		return err
 	}

@@ -96,11 +96,32 @@ def utilization_path(args):
     return "/api/utilization?" + urllib.parse.urlencode(params)
 
 
+def idle_ranking_path(args):
+    params = {}
+    for attr, key, lower, upper in (("devices_per_machine", "devicesPerMachine", 1, 128),
+                                    ("min_free_hbm_mb", "minFreeHbmMB", 0, 1 << 40),
+                                    ("max_sample_age", "maxSampleAgeSeconds", 1, 300)):
+        value = getattr(args, attr, None)
+        if value is not None:
+            if not lower <= value <= upper:
+                raise ValueError(f"{key} 超出范围")
+            params[key] = value
+    for key in ("group", "model"):
+        if getattr(args, key, None):
+            params[key] = getattr(args, key)
+    return "/api/idle-ranking?" + urllib.parse.urlencode(params)
+
+
 def run(args, client):
     if args.action == "discover":
         return client.discover(), 0
     if args.action == "machines":
         return {"machines": machines(client)}, 0
+    if args.action == "idle-ranking":
+        output = client.api(idle_ranking_path(args))
+        if output.get("schema") != "simplehtmlwatch.idle-ranking.v1" or not isinstance(output.get("machines"), list) or output.get("requiresLiveCheck") is not True:
+            raise ValueError("空闲排序响应无效")
+        return output, 3 if output.get("exportError") or output.get("historyStorageError") else 0
     if args.action == "utilization":
         output = client.api(utilization_path(args))
         if not isinstance(output.get("machines"), list) or output.get("source") != "npu-smi":
@@ -150,6 +171,12 @@ def main(argv=None):
     sub = p.add_subparsers(dest="action", required=True)
     sub.add_parser("discover", help="发现并核验在线实例身份")
     sub.add_parser("machines", help="列出注册机器、SSH 状态及接入开关")
+    idle = sub.add_parser("idle-ranking", help="五档历史排序与当前资源检查；不预留、不提交")
+    idle.add_argument("--group")
+    idle.add_argument("--model")
+    idle.add_argument("--devices-per-machine", type=int)
+    idle.add_argument("--min-free-hbm-mb", type=int)
+    idle.add_argument("--max-sample-age", type=int)
     q = sub.add_parser("query", help="查询一台机器或一个任务的系统指标")
     selector = q.add_mutually_exclusive_group(required=True)
     selector.add_argument("--machine", help="机器 ID")
@@ -172,6 +199,8 @@ def main(argv=None):
             query_path(machine="validation", after=args.after, before=args.before)
         if args.action == "utilization":
             utilization_path(args)
+        if args.action == "idle-ranking":
+            idle_ranking_path(args)
         output, code = run(args, Client(args))
         print(json.dumps(output, ensure_ascii=False, indent=2, allow_nan=False))
         return code

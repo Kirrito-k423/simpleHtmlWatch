@@ -237,3 +237,7 @@ scripts/build.sh        # 跨平台发布包
 技术依据：[Go 嵌入资源](https://pkg.go.dev/embed)、[Go SSH 客户端](https://pkg.go.dev/golang.org/x/crypto/ssh)。
 
 MIT License.
+
+## 五档空闲机器排序
+
+v0.8.0：顶部“空闲机器排序”按历史占用分为五档，结合当前NPU进程、HBM、设备条件和中台占用显示结果。复用采样保存最近6小时的5分钟桶，启动及北京时间整点/半点原子更新 `exports/idle-ranking.json`。外部AI使用两个Skill的 `idle-ranking` 子命令，使用前仍须实时检查并预约。升级前的小时历史无法补成5分钟，初期显示历史不足。完整字段、默认资源条件和容量见 [空闲排序说明](docs/idle-ranking.md)。

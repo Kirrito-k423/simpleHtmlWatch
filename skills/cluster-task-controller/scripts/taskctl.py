@@ -199,6 +199,29 @@ class Client:
                       data, run_id=self.run_id, max_response_bytes=16 * 1024 * 1024)
         return json.loads(raw)
 
+    def idle_ranking(self, args):
+        if self.allow_legacy:
+            raise ValueError("空闲排序不允许 legacy 模式")
+        params = {}
+        for attr, key, lower, upper in (("devices_per_machine", "devicesPerMachine", 1, 128),
+                                        ("min_free_hbm_mb", "minFreeHbmMB", 0, 1 << 40),
+                                        ("max_sample_age", "maxSampleAgeSeconds", 1, 300)):
+            value = getattr(args, attr, None)
+            if value is not None:
+                if not lower <= value <= upper:
+                    raise ValueError(f"{key} 超出范围")
+                params[key] = value
+        for key in ("group", "model"):
+            if getattr(args, key, None):
+                params[key] = getattr(args, key)
+        self.capabilities.add("idle-machine-ranking-v1")
+        self.prepare()
+        output = json.loads(request(self.url + "/api/idle-ranking?" + urllib.parse.urlencode(params),
+                                    self.token, run_id=self.run_id))
+        if output.get("schema") != "simplehtmlwatch.idle-ranking.v1" or not isinstance(output.get("machines"), list) or output.get("requiresLiveCheck") is not True:
+            raise ValueError("空闲排序响应无效")
+        return output
+
 
 def checkpoint_digest(checkpoint):
     if not isinstance(checkpoint, dict) or not isinstance(checkpoint.get("path"), str):
@@ -377,6 +400,12 @@ def main():
     ready.add_argument("--group")
     ready.add_argument("--machine")
     sub.add_parser("machines", help="列出机器入口、物理资源标识和占用原因")
+    idle = sub.add_parser("idle-ranking", help="只读五档空闲排序并检查当前NPU、HBM及中台占用")
+    idle.add_argument("--group")
+    idle.add_argument("--model")
+    idle.add_argument("--devices-per-machine", type=int)
+    idle.add_argument("--min-free-hbm-mb", type=int)
+    idle.add_argument("--max-sample-age", type=int)
     sub.add_parser("storage", help="只读查看持久化元数据增长预算")
     reservations = sub.add_parser("reservations", help="只读查询预约，写请求不确定时查询原 ID")
     reservations.add_argument("--id")
@@ -450,6 +479,10 @@ def main():
                 result = result["reservations"][args.id]
             show(result)
         return 0
+    if args.action == "idle-ranking":
+        result = client.idle_ranking(args)
+        show(result)
+        return 3 if result.get("exportError") or result.get("historyStorageError") else 0
     if args.action == "ready":
         if args.group and args.machine:
             raise ValueError("ready 只能指定一个选择器")

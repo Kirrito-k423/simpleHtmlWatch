@@ -154,7 +154,7 @@ func (s *ServiceLease) Close() {
 // AcquireService must run before reading credentials, recovering tasks, or
 // starting monitors. The OS lock is also understood by historical releases.
 // A healthy existing owner is returned for reuse; it is never replaced.
-func AcquireService(dir, instance, version string, port int, explicitPort, adoptBuild bool) (*ServiceLease, *ServiceInfo, error) {
+func AcquireService(dir, instance, version string, port int, explicitPort, adoptBuild bool, archiveDirs ...string) (*ServiceLease, *ServiceInfo, error) {
 	if port < 0 || port > 65535 {
 		return nil, nil, errors.New("端口必须在 0–65535 之间")
 	}
@@ -228,13 +228,37 @@ func AcquireService(dir, instance, version string, port int, explicitPort, adopt
 	if err != nil {
 		return nil, nil, fmt.Errorf("实例端口 %d 无法绑定；不会换端口或停止占用者。计划迁移请显式指定 -port：%w", port, err)
 	}
+	requested := ""
+	if len(archiveDirs) > 0 {
+		requested = archiveDirs[0]
+	}
+	if requested != "" {
+		unlockBackup, e := lockBackups(dir)
+		if e != nil {
+			listener.Close()
+			return nil, nil, e
+		}
+		_, e = backupPolicy(dir, requested)
+		unlockBackup()
+		if e != nil {
+			listener.Close()
+			return nil, nil, e
+		}
+	}
+	if previous.BuildID != "" && (previous.BuildID != buildID || previous.Version != version) && adoptBuild {
+		if err = prepareUpgradeBackup(dir, previous); err != nil {
+			listener.Close()
+			return nil, nil, fmt.Errorf("升级回滚备份失败，未采用新构建：%w", err)
+		}
+	}
 	info := ServiceInfo{
 		Schema: ServiceSchema, ServiceID: serviceID, Instance: instance, RunID: randomToken(),
 		Version: version, BuildID: buildID, APIVersion: ServiceAPIVersion,
-		Capabilities: []string{"tasks", "reservations", "atomic-group-reservations-v1", "forwarded-resource-identity-v1", "instance-fencing", "netdata-metrics-v1", "accelerator-utilization-v1", "accelerator-occupancy-v1", "experiment-continuations-v1", "queue-residue-cleanup-v1", "task-result-stream-v1", "bounded-storage-v1", "ssh-terminal-v1", "completed-task-retention-v1"},
+		Capabilities: []string{"tasks", "reservations", "atomic-group-reservations-v1", "forwarded-resource-identity-v1", "instance-fencing", "netdata-metrics-v1", "accelerator-utilization-v1", "accelerator-occupancy-v1", "experiment-continuations-v1", "queue-residue-cleanup-v1", "task-result-stream-v1", "bounded-storage-v1", "ssh-terminal-v1", "completed-task-retention-v1", idleRankingCapability},
 		URL:          "http://" + listener.Addr().String(), DataDir: canonical, Executable: executable,
 		PID: os.Getpid(), StartedAt: time.Now().UTC().Format(time.RFC3339Nano),
 	}
+	info.Capabilities = append(info.Capabilities, "upgrade-backup-archive-v1")
 	success = true
 	return &ServiceLease{Info: info, Listener: listener, unlock: unlock}, nil, nil
 }

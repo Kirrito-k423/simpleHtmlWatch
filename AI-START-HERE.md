@@ -4,6 +4,8 @@
 
 ## 人工启动与页面使用
 
+v0.8.1 的 `upgrade-backup-archive-v1` 在维护者采用不同构建前自动备份旧程序和核心状态。本机仅一份回滚快照及当前程序缓存；外置目录配置一次后自动归档，最多3份/30天、保护最近2份已验证快照。不要手工累积多代完整副本。`-backup-status` 可查策略及错误，归档失联不自动回滚或重启。恢复钥匙 `backup-archive.key` 留在实例目录，须另行安全保管，不发给AI或放入发布包。完整流程见 [备份归档](docs/backup-archive.md)。
+
 1. 选择与运行程序的电脑系统、架构相符的发布包并解压。Windows 双击 `start.bat` 或 `simpleHtmlWatch.exe`；macOS 双击 `start.command`；Linux 在文件管理器中运行 `start.sh`。保持启动窗口打开。macOS 包未签名，系统首次打开时可能要求在系统设置中允许。
 2. 浏览器会自动打开本机页面。若没有自动打开，使用启动窗口“监控页面”后面的地址。点击“管理机器”，配置 SSH 地址、账号及密码或本机 SSH key。默认密码失败后尝试密钥；指定私钥时填写本机绝对路径或 `~/` 路径，加密私钥另填口令。先让监控完成采样，并核对主机指纹。
 3. 点击“任务中台”。不指定机器或组时由中台选择 ready 机器；也可指定机器或组。提交前确认将运行的完整命令。页面显示选中的机器、任务状态、真实事件时间泳道、日志和结果下载。
@@ -34,6 +36,14 @@ v0.7.1 在保留以下能力的基础上增加空间预算：本机跳板多机�
 点击“NPU 利用率”查看今天、昨天或近 7 个完整自然日的跨机器小时均值、峰值、低负载占比和覆盖率。复用已有 NPU 采样，不需要 Netdata 或开启文本历史；只保存机器级小时桶，压缩日文件最多 2 MB，保留最近 30 个自然日。未采集的过去无法补回。
 
 AI 使用已更新的 `simplehtmlwatch-netdata` Skill，先 discover 核对 `accelerator-utilization-v1` 和 `accelerator-occupancy-v1`，再执行 `metricsctl.py --instance <实例名> utilization --period yesterday` 或 `--period week --group <机器组>`。并列报告平均算力、整机占用时长比例及各自覆盖率；任意卡有 NPU 进程就计占用，跨机器／跨日按对应观测时长加权。退出码 3 代表任意一项历史不全，不是服务宕机。时间按北京时间，旧占用历史和未知状态不补零；低谷不证明当前资源允许部署。详细口径见 [利用率说明](docs/utilization.md)。
+
+## 五档空闲机器排序
+
+v0.8.0 新增 `idle-machine-ranking-v1`。点击“空闲机器排序”查看五档历史偏好、当前资源检查、滚动占用率与覆盖率，并按机器组、型号、设备数及HBM筛选。启动及北京时间整点、半点原子保存 `<discover.dataDir>/exports/idle-ranking.json`，网页打开时每10秒检查最新监控。
+
+外部AI使用更新后的 `taskctl.py --instance <实例名> idle-ranking` 或 `metricsctl.py --instance <实例名> idle-ranking`，按真实任务增加 `--group`、`--model`、`--devices-per-machine`、`--min-free-hbm-mb` 和 `--max-sample-age`。`eligible` 与 `recommended` 分开；默认检查无进程、算力为0、每设备至少1024 MB空闲HBM，但不替代具体任务的型号/卡数/容量要求。旧 `ready` 和不指定机器的自动提交仍采用原规则，使用排序须明确选机并通过原预约/提交协议。
+
+细粒度历史从升级后积累，不把旧小时桶拆成5分钟；历史不足、覆盖不全或当前采样未知均明确显示。所有文件带 `requiresLiveCheck:true`：实际领用前重新核验同一实例并预约，不把半小时文件当独占许可。API/页面报告导出和历史保存错误，异常不触发客户端重启。完整口径、JSON字段、边界与容量见 [空闲排序说明](docs/idle-ranking.md)。
 
 ## 常驻排队清理
 

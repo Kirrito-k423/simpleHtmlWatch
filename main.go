@@ -43,6 +43,15 @@ func start() error {
 	adoptBuild := flag.Bool("adopt-build", false, "服务停止后，明确将此构建选为该实例的运行版本")
 	noBrowser := flag.Bool("no-browser", false, "不自动打开浏览器")
 	showVersion := flag.Bool("version", false, "显示版本")
+	var backup watch.BackupCommand
+	flag.StringVar(&backup.ArchiveDir, "backup-archive-dir", "", "外置升级备份仓库；首次配置后持久化，断开时保留本机回滚")
+	flag.StringVar(&backup.Source, "archive-backup", "", "归档指定的旧备份目录；不会启动服务")
+	flag.StringVar(&backup.SourceRoot, "backup-source-root", "", "明确允许归档来源所在的父目录")
+	flag.BoolVar(&backup.Remove, "remove-archived-source", false, "归档认证校验和实际恢复演练通过后删除该源目录")
+	flag.StringVar(&backup.Verify, "verify-backup", "", "解密并逐文件校验指定 .shwb 归档")
+	flag.StringVar(&backup.Restore, "restore-backup", "", "恢复指定 .shwb 到新的恢复目录")
+	flag.StringVar(&backup.RestoreDir, "restore-dir", "", "必须不存在的恢复目录；不会覆盖实例")
+	flag.BoolVar(&backup.Status, "backup-status", false, "输出升级备份策略和回滚状态；不会启动服务")
 	flag.Parse()
 	if *showVersion {
 		fmt.Println(version)
@@ -53,6 +62,22 @@ func start() error {
 		return err
 	}
 	*dir = resolved
+	if backup.Source != "" || backup.Verify != "" || backup.Restore != "" || backup.Status || backup.Remove || backup.SourceRoot != "" || backup.RestoreDir != "" {
+		modes := 0
+		for _, yes := range []bool{backup.Source != "", backup.Verify != "", backup.Restore != "", backup.Status} {
+			if yes {
+				modes++
+			}
+		}
+		if modes != 1 {
+			return fmt.Errorf("一次只能选择一个备份维护操作")
+		}
+		result, err := watch.RunBackupCommand(*dir, backup)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(result)
+	}
 	if *status {
 		info, err := watch.DiscoverService(*dir, *instance)
 		if err != nil {
@@ -66,7 +91,7 @@ func start() error {
 			explicitPort = true
 		}
 	})
-	lease, existing, err := watch.AcquireService(*dir, *instance, version, *port, explicitPort, *adoptBuild)
+	lease, existing, err := watch.AcquireService(*dir, *instance, version, *port, explicitPort, *adoptBuild, backup.ArchiveDir)
 	if err != nil {
 		return err
 	}
@@ -78,6 +103,11 @@ func start() error {
 		return nil
 	}
 	defer lease.Close()
+	closeBackups, err := watch.StartBackupMaintenance(*dir, lease.Info)
+	if err != nil {
+		return err
+	}
+	defer closeBackups()
 	logs, err := watch.NewBoundedLogs(*dir, boundedLogs)
 	if err != nil {
 		return err
@@ -109,6 +139,9 @@ func start() error {
 	}
 	defer app.Close()
 	app.SetServiceInfo(lease.Info)
+	if err := app.EnableIdleRanking(); err != nil {
+		return err
+	}
 	if err := lease.Publish(); err != nil {
 		return err
 	}

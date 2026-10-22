@@ -32,19 +32,20 @@ type Result struct {
 	Truncated bool      `json:"truncated"`
 }
 type State struct {
-	MachineID   string     `json:"machineId"`
-	Status      string     `json:"status"`
-	Error       string     `json:"error,omitempty"`
-	UpdatedAt   time.Time  `json:"updatedAt"`
-	LastSuccess time.Time  `json:"lastSuccess"`
-	DurationMs  int64      `json:"durationMs"`
-	Reconnects  int        `json:"reconnects,omitempty"`
-	AuthMethod  string     `json:"authMethod,omitempty"`
-	Fingerprint string     `json:"fingerprint,omitempty"`
-	Address     string     `json:"address,omitempty"`
-	KeyChanged  bool       `json:"keyChanged,omitempty"`
-	AutoTrustAt *time.Time `json:"autoTrustAt,omitempty"`
-	Results     []Result   `json:"results"`
+	SampleIdentity string     `json:"-"`
+	MachineID      string     `json:"machineId"`
+	Status         string     `json:"status"`
+	Error          string     `json:"error,omitempty"`
+	UpdatedAt      time.Time  `json:"updatedAt"`
+	LastSuccess    time.Time  `json:"lastSuccess"`
+	DurationMs     int64      `json:"durationMs"`
+	Reconnects     int        `json:"reconnects,omitempty"`
+	AuthMethod     string     `json:"authMethod,omitempty"`
+	Fingerprint    string     `json:"fingerprint,omitempty"`
+	Address        string     `json:"address,omitempty"`
+	KeyChanged     bool       `json:"keyChanged,omitempty"`
+	AutoTrustAt    *time.Time `json:"autoTrustAt,omitempty"`
+	Results        []Result   `json:"results"`
 }
 type Monitor struct {
 	utilization    *Utilization
@@ -172,7 +173,7 @@ func (m *Monitor) worker(ctx context.Context, host Machine, profile Profile, sel
 		}
 		start := time.Now()
 		sampleCommands := append([]Command{}, selected...)
-		s := State{MachineID: host.ID, Status: "online", Results: []Result{}, LastSuccess: last}
+		s := State{SampleIdentity: monitorSampleIdentity(host), MachineID: host.ID, Status: "online", Results: []Result{}, LastSuccess: last}
 		addr := net.JoinHostPort(host.Host, strconv.Itoa(host.Port))
 		var err error
 		if client == nil {

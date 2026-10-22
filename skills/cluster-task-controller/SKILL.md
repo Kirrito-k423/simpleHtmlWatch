@@ -1,6 +1,6 @@
 ---
 name: cluster-task-controller
-description: "当用户要求通过 simpleHtmlWatch 的本机 SSH 任务中台寻找 ready 机器、自动调度或向指定机器及机器组提交长任务、跟踪进度、读取日志、回收结果包时使用。"
+description: "当用户要求通过 simpleHtmlWatch 的本机 SSH 任务中台查询五档空闲排序、寻找 ready 机器、自动调度或向指定机器及机器组提交长任务、跟踪进度、读取日志、回收结果包时使用。"
 ---
 
 # 集群任务中台
@@ -19,6 +19,20 @@ AIConnector 整组实验使用能力 `atomic-group-reservations-v1`，详见包�
 TASKCTL="${CODEX_HOME:-$HOME/.codex}/skills/cluster-task-controller/scripts/taskctl.py"
 ```
 
+## 五档空闲候选
+
+v0.8.0 的 `idle-machine-ranking-v1` 提供历史偏好和当前资源检查：
+
+```sh
+python3 "$TASKCTL" --instance <实例名> idle-ranking --group "<机器组>" --model "<型号>" --devices-per-machine 16 --min-free-hbm-mb 32768 --max-sample-age 90
+```
+
+示例设备数、HBM 和型号须改成任务真实需求。顺序为 ≥3h/2h/1h 观测零占用，最近1h非零且<15%，最近1h为15%–25%。`tier: 0` 有明确原因；`eligible` 表示当前资源条件通过，`recommended` 还要求历史档位有效，仅后者有正 `rank`。历史不足不能补零，未知当前状态不能凭历史放行。覆盖率按每个小时检查≥90%，占用依据任意NPU进程，包括算力为0的进程。
+
+服务启动及北京时间整点、半点自动保存 `<discover.dataDir>/exports/idle-ranking.json`。文件带实例/serviceId/runId、生成时间、历史截止、资源条件、各窗口覆盖率、当前资源状态及 `requiresLiveCheck: true`；不能当作资源独占或执行许可。文件过期或身份不匹配时重新发现和查询。实时API每次读取已有监控快照，无额外SSH；默认无进程、每设备算力为0、每设备至少1024 MB空闲HBM，型号和数量须AI按任务指定。
+
+在用户授权的硬件/组范围查询排序，再对候选重新查实时状态并用原预约协议预留，明确指定 `--machine` 提交。同一物理资源的多个入口按 `resourceKey` 去重并遵循原冲突规则。查询不预留、不提交、不清理进程；不指定机器的旧提交仍按ID选ready，不能声称自动使用本排序。读取成功但无候选返回0；历史保存或导出异常返回3；缺能力或请求失败返回2，只报告、不得自动升级或重启。完整规则见发布包 `docs/idle-ranking.md`。
+
 ## 提交前
 
 1. 确定实例：默认 `default`，测试实例用 `--instance <名称>`，自定义数据目录用 `--data-dir <绝对路径>`。先运行 `discover`，它读取该实例的 `service.json`，再核对 `/healthz` 的稳定 `serviceId`、每次启动的 `runId`、版本、协议和能力。后续命令使用同一实例参数，不把端口当作服务身份。若要固定身份或能力，使用 `--service-id`、`--expect-version`、`--require-capability`。
@@ -33,6 +47,8 @@ python3 "$TASKCTL" ready
 ```
 
 ## 服务归属与故障处理
+
+v0.8.1 广告 `upgrade-backup-archive-v1`。只有维护者在已有升级授权内采用新构建；程序自动保存旧程序及核心状态，本机固定一份回滚快照和一份程序缓存，配置外置归档后最多3份/30天并保护最近2份已验证档。不要再手工复制多代 `maintenance-backups/` 或 `service-logs/`。`-backup-status` 查归档错误，外置失联保留本机回滚，不据此自动降级或重启。解密钥匙不发给AI、不打进包。维护和恢复阅读 [备份协议](references/backup-archive.md)。
 
 - 默认不需要 `--url`：按实例发现当前地址。自定义目录设置 `SHW_DATA_DIR` 或传 `--data-dir`；所有命令必须使用同一组实例参数。每次操作前重新发现，同一实例经过计划重启或端口迁移后可刷新地址和会话；若服务暂不可达则报错退出。
 - `--url` / `SHW_URL` 是显式固定地址，失效时不会偷偷回退到其他实例。迁移到实例发现时先清除旧 `SHW_URL`。`--url` 和 `--data-dir` 不能同时使用。
@@ -113,3 +129,5 @@ python3 "$TASKCTL" storage
 具备 `ssh-terminal-v1` 时，用户可在机器卡片点击 SSH 或从顶部 SSH 终端选择机器。终端是人工交互 shell，使用原机器账号权限，主机指纹必须已信任；它不创建任务 ID、不预留 NPU、不持久化本机输出。关闭窗口或 15 分钟无输入断开，无自动重连；有后台运行、退出码或结果回收要求的 AI 实验仍使用本 Skill 的任务流程。
 
 外部启动器或 SSH 转发日志不会自动纳入任务预算。已有维护授权时可明确配置 `-bounded-log`，每个诊断日志超过 64 KiB 保留末尾 32 KiB，最多 8 个、每 30 秒检查；这会丢弃较早诊断行，不能用于实验输出。客户端不要自行改启动参数。
+
+独立分发的Skill内附 [空闲排序协议](references/idle-ranking.md)，包含JSON字段、门槛和领用流程。

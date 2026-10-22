@@ -8,6 +8,8 @@
 
 ## 开箱即用
 
+v0.8.1 包含五档空闲排序和自动升级备份。升级前自动保存旧程序及核心状态，本机固定一份回滚快照；可配置外置加密归档，最多3份/30天且保护最近2份。详见 [备份归档与恢复](docs/backup-archive.md)。
+
 整机占用小时统计与任务中台的占卡残留诊断、清理开关已合并到同一程序包。Windows 安装、保留数据升级及两项功能入口见 [Windows 使用说明](WINDOWS-INSTALL.md)；在 Releases 中选择 v0.7.1 或更新版本的对应平台包。
 
 1. 从 [Releases](https://github.com/Kirrito-k423/simpleHtmlWatch/releases/latest) 下载 `windows_amd64.zip`（普通 Intel / AMD Windows 电脑）；Windows ARM 设备选择 `windows_arm64.zip`。
@@ -237,3 +239,7 @@ scripts/build.sh        # 跨平台发布包
 技术依据：[Go 嵌入资源](https://pkg.go.dev/embed)、[Go SSH 客户端](https://pkg.go.dev/golang.org/x/crypto/ssh)。
 
 MIT License.
+
+## 五档空闲机器排序
+
+v0.8.0：顶部“空闲机器排序”按历史占用分为五档，结合当前NPU进程、HBM、设备条件和中台占用显示结果。复用采样保存最近6小时的5分钟桶，启动及北京时间整点/半点原子更新 `exports/idle-ranking.json`。外部AI使用两个Skill的 `idle-ranking` 子命令，使用前仍须实时检查并预约。升级前的小时历史无法补成5分钟，初期显示历史不足。完整字段、默认资源条件和容量见 [空闲排序说明](docs/idle-ranking.md)。

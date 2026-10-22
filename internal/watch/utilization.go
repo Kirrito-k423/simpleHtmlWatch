@@ -78,6 +78,7 @@ func (d *utilizationDay) UnmarshalJSON(raw []byte) error {
 }
 
 type utilizationPending struct {
+	resourceKey    string
 	key            string
 	machine        utilizationMachine
 	at, cursor     time.Time
@@ -87,17 +88,20 @@ type utilizationPending struct {
 	occupied       bool
 }
 type Utilization struct {
-	mu        sync.Mutex
-	dir       string
-	days      map[string]*utilizationDay
-	dirty     map[string]bool
-	pending   map[string]utilizationPending
-	bytes     int64
-	limit     int64
-	lastError string
-	now       func() time.Time
-	stop      chan struct{}
-	wg        sync.WaitGroup
+	recent      map[string]*occupancySeries
+	recentBytes int64
+	recentError string
+	mu          sync.Mutex
+	dir         string
+	days        map[string]*utilizationDay
+	dirty       map[string]bool
+	pending     map[string]utilizationPending
+	bytes       int64
+	limit       int64
+	lastError   string
+	now         func() time.Time
+	stop        chan struct{}
+	wg          sync.WaitGroup
 }
 
 func NewUtilization(dir string) (*Utilization, error) {
@@ -157,6 +161,9 @@ func newUtilization(dir string, now func() time.Time) (*Utilization, error) {
 			return nil, err
 		}
 		u.days[day.Date] = &day
+	}
+	if err := u.loadRecent(); err != nil {
+		return nil, err
 	}
 	return u, nil
 }
@@ -253,6 +260,7 @@ func (u *Utilization) advance(p utilizationPending, end time.Time) utilizationPe
 		}
 		ms := next.Sub(p.cursor).Milliseconds()
 		if ms > 0 {
+			u.advanceRecent(p, p.cursor, next)
 			b := u.bucket(p.cursor, p)
 			b[1] += ms
 			b[2] += p.basis * ms
@@ -324,8 +332,7 @@ func (u *Utilization) Observe(machine Machine, state State, interval time.Durati
 		return
 	}
 	meta := utilizationMachine{machine.ID, machine.Name, machine.Group, fmt.Sprintf("%s:%d", machine.Host, machine.Port), reading.model, reading.metric}
-	hash := sha256.Sum256([]byte(meta.ID + "\x00" + meta.Address + "\x00" + meta.Model + "\x00" + meta.Metric))
-	key := hex.EncodeToString(hash[:12])
+	key := utilizationKey(meta)
 	if exists && old.key == key {
 		u.advance(old, at)
 	}
@@ -333,7 +340,7 @@ func (u *Utilization) Observe(machine Machine, state State, interval time.Durati
 	if exists && old.key == key && old.cursor.After(cursor) {
 		cursor = old.cursor // Never count a previously integrated interval twice.
 	}
-	p := utilizationPending{key: key, machine: meta, at: at, cursor: cursor, hold: 2*interval + 30*time.Second, basis: reading.basis, occupancyKnown: reading.occupancyKnown, occupied: reading.occupied}
+	p := utilizationPending{resourceKey: machineResource(machine), key: key, machine: meta, at: at, cursor: cursor, hold: 2*interval + 30*time.Second, basis: reading.basis, occupancyKnown: reading.occupancyKnown, occupied: reading.occupied}
 	u.pending[machine.ID] = p
 	b := u.bucket(at, p)
 	b[5]++
@@ -406,12 +413,25 @@ func (u *Utilization) Flush() error {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	err := u.flushLocked()
+	recentErr := u.flushRecentLocked()
+	u.recentError = ""
+	if recentErr != nil {
+		u.recentError = recentErr.Error()
+	}
 	if err != nil {
 		u.lastError = err.Error()
 	} else {
 		u.lastError = ""
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	return recentErr
+}
+
+func utilizationKey(meta utilizationMachine) string {
+	hash := sha256.Sum256([]byte(meta.ID + "\x00" + meta.Address + "\x00" + meta.Model + "\x00" + meta.Metric))
+	return hex.EncodeToString(hash[:12])
 }
 func (u *Utilization) flushLocked() error {
 	if err := u.pruneLocked(); err != nil {

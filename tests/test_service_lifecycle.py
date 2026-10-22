@@ -197,7 +197,7 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         old_binary = (restored / "runtime/simpleHtmlWatch").read_bytes()
         self.assertEqual(hashlib.sha256(old_binary).hexdigest(), before["buildId"])
-        self.assertEqual(json.loads((restored / "data/service.json").read_text())["buildId"], before["buildId"])
+        self.assertEqual(json.loads((restored / "data/service.json").read_text(encoding="utf-8"))["buildId"], before["buildId"])
         third = self.launch(version="test-v2", extra=("-adopt-build",))
         self.running(third)
         self.stop(third)

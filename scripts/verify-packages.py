@@ -51,6 +51,9 @@ for target in ("windows_amd64", "windows_arm64", "darwin_amd64", "darwin_arm64",
     assert "物理资源 ID".encode() in binary, "界面缺少物理资源配置入口"
     assert b"accelerator-occupancy-v1" in content[root + "/skills/simplehtmlwatch-netdata/scripts/service_client.py"]
     assert "整机占用时长比例".encode() in binary and "诊断与清理日志".encode() in binary, "界面未集成"
+    assert b"workingHoursSummary" in binary and b"nonWorkingHoursSummary" in binary, "程序缺少分时段汇总字段"
+    assert "非工作时段汇总".encode() in binary and b"09:00" in binary and b"19:00" in binary, "界面缺少工作及非工作时段汇总"
+    assert b"workingHoursSummary" in content[root + "/docs/utilization.md"] and b"nonWorkingHoursSummary" in content[root + "/skills/simplehtmlwatch-netdata/SKILL.md"], "分时段汇总说明未同步"
     if target.startswith("windows"):
         offset = struct.unpack_from("<I", binary, 0x3c)[0]
         assert binary[:2] == b"MZ" and binary[offset:offset+4] == b"PE\0\0"
@@ -63,7 +66,7 @@ for target in ("windows_amd64", "windows_arm64", "darwin_amd64", "darwin_arm64",
     else:
         assert struct.unpack_from("<I", binary)[0] == 0xfeedfacf
         assert struct.unpack_from("<I", binary, 4)[0] == (0x1000007 if target.endswith("amd64") else 0x100000c)
-    report["packages"].append({"file": path.name, "bytes": path.stat().st_size, "sha256": sha, "architectureVerified": True, "bothFeaturesEmbedded": True, "credentialAndCacheAudit": True})
+    report["packages"].append({"file": path.name, "bytes": path.stat().st_size, "sha256": sha, "architectureVerified": True, "bothFeaturesEmbedded": True, "periodSummariesEmbedded": True, "credentialAndCacheAudit": True})
 output = dist / f"package-verification_{version}.json"
 output.write_text(json.dumps(report,ensure_ascii=False,indent=2) + "\n")
 print(json.dumps({"verifiedPackages":len(report["packages"]),"report":str(output)},ensure_ascii=False))

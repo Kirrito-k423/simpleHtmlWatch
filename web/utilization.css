@@ -24,6 +24,7 @@
 .utilization-table .util-missing{background:#191e26;color:#67707e}
 .utilization-table .util-partial{background-image:repeating-linear-gradient(135deg,#ffffff0d 0,#ffffff0d 3px,transparent 3px,transparent 7px)}
 .utilization-table .util-summary{min-width:70px}
+.util-summary-coverage{display:block;font-size:10px;color:var(--muted);margin-top:2px}
 .utilization-windows{font-size:12px;margin:12px 0}
 .utilization-windows summary{cursor:pointer;color:var(--muted)}
 #utilization-windows p{padding:8px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}

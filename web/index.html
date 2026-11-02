@@ -65,6 +65,7 @@
       <div id="utilization-message" role="status"></div><p id="utilization-storage"></p>
       <div class="utilization-legend"><span>上行：平均算力</span><span class="util-low">低于 10%</span><span class="util-mid">10–50%</span><span class="util-high">50% 及以上</span><span>下行：占用时长</span><span class="util-idle">无占用</span><span class="util-occupied">有占用</span><span>— 缺失</span><span>斜纹：对应指标覆盖不足 90%</span></div>
       <div id="utilization-table" class="utilization-table-wrap"></div>
+      <p class="utilization-note">工作时段：每天 09:00–12:00、14:00–18:00、19:00–20:00（北京时间，含开始、不含结束）；非工作时段为其余时间。三组汇总均覆盖所选范围，按有效观测时长加权；切换日期视图不改变汇总范围。今天的覆盖率仅计算已过去的对应时段。</p>
       <details class="utilization-windows"><summary>已观测到的低负载时段</summary><div id="utilization-windows"></div></details>
       <section id="utilization-detail"></section>
       <p class="utilization-note">算力为整机各 NPU 利用率的平均值。任意一张卡有 NPU 进程即视为整机占用；占用比例＝被占用时长／进程状态明确的观测时长，配合占用覆盖率阅读。两项按小时并列展示，点击机器查看明细。采样间采用有时限的前值估计，断连、未知及升级前未采集的占用历史不补零。历史低负载不能证明当前资源允许部署。</p>

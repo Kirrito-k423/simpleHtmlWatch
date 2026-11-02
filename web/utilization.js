@@ -19,6 +19,11 @@
     const occupancy=h.occupiedPercent==null?'util-missing':h.occupiedPercent===0?'util-idle':'util-occupied';
     return '<td title="'+escape(title)+'"><span class="util-value '+style+(h.mean!=null&&h.coveragePercent<90?' util-partial':'')+'">算力 '+fmt(h.mean)+'</span><span class="util-value '+occupancy+(h.occupiedPercent!=null&&h.occupancyCoveragePercent<90?' util-partial':'')+'">占用 '+fmt(h.occupiedPercent)+'</span></td>';
   }
+  function summaryCell(summary){
+    const s=summary||{};
+    const value=(label,mean,coverage)=>'<span class="util-value'+(mean!=null&&coverage<90?' util-partial':'')+'">'+label+' '+fmt(mean)+'<small class="util-summary-coverage">覆盖 '+fmt(coverage)+'</small></span>';
+    return '<td class="util-summary">'+value('算力',s.mean,s.coveragePercent)+value('占用',s.occupiedPercent,s.occupancyCoveragePercent)+'</td>';
+  }
   function detail(index){
     const row=snapshot.machines[index];
     el('detail').innerHTML='<h3>'+escape(row.name||row.id)+' · '+escape(row.model||'尚无可识别数据')+' · '+escape(row.metric)+'</h3><table><thead><tr><th>北京时间</th><th>平均算力</th><th>占用时长比例</th><th>算力覆盖率</th><th>占用覆盖率</th><th>整机峰值</th><th>低于 10%</th><th>采样数</th></tr></thead><tbody>'+row.hours.map(h=>'<tr><td>'+stamp(h.at)+'</td><td>'+fmt(h.mean)+'</td><td>'+fmt(h.occupiedPercent)+'</td><td>'+fmt(h.coveragePercent)+'</td><td>'+fmt(h.occupancyCoveragePercent)+'</td><td>'+fmt(h.peak)+'</td><td>'+fmt(h.lowPercent)+'</td><td>'+h.samples+'</td></tr>').join('')+'</tbody></table>';
@@ -27,7 +32,7 @@
     if(!snapshot)return;
     el('detail').replaceChildren();
     const rows=snapshot.machines;
-    el('table').innerHTML='<table class="utilization-table"><thead><tr><th>机器 / 小时</th>'+Array.from({length:24},(_,i)=>'<th>'+String(i).padStart(2,'0')+'</th>').join('')+'<th>全窗口汇总</th><th>覆盖率</th></tr></thead><tbody>'+rows.map((row,i)=>'<tr><th><button type="button" data-util-machine="'+i+'">'+escape(row.name||row.id)+'</button></th>'+selectedHours(row).map(cell).join('')+'<td class="util-summary"><span class="util-value">算力 '+fmt(row.mean)+'</span><span class="util-value">占用 '+fmt(row.occupiedPercent)+'</span></td><td><span class="util-value">算力 '+fmt(row.coveragePercent)+'</span><span class="util-value">占用 '+fmt(row.occupancyCoveragePercent)+'</span></td></tr>').join('')+'</tbody></table>';
+    el('table').innerHTML='<table class="utilization-table"><thead><tr><th>机器 / 小时</th>'+Array.from({length:24},(_,i)=>'<th>'+String(i).padStart(2,'0')+'</th>').join('')+'<th>全窗口汇总</th><th>覆盖率</th><th title="北京时间：每天 09:00–12:00、14:00–18:00、19:00–20:00">工作时段汇总</th><th title="北京时间：每天除工作时段外的其余时间">非工作时段汇总</th></tr></thead><tbody>'+rows.map((row,i)=>'<tr><th><button type="button" data-util-machine="'+i+'">'+escape(row.name||row.id)+'</button></th>'+selectedHours(row).map(cell).join('')+'<td class="util-summary"><span class="util-value">算力 '+fmt(row.mean)+'</span><span class="util-value">占用 '+fmt(row.occupiedPercent)+'</span></td><td><span class="util-value">算力 '+fmt(row.coveragePercent)+'</span><span class="util-value">占用 '+fmt(row.occupancyCoveragePercent)+'</span></td>'+summaryCell(row.workingHoursSummary)+summaryCell(row.nonWorkingHoursSummary)+'</tr>').join('')+'</tbody></table>';
     const observed=rows.filter(row=>row.mean!=null).length;
     const occupiedObserved=rows.filter(row=>row.occupiedPercent!=null).length;
     message(snapshot.storageError?'历史写入异常：'+snapshot.storageError:observed?'算力历史 '+observed+' / '+rows.length+' 台；占用历史 '+occupiedObserved+' / '+rows.length+' 台。每格上行算力、下行占用；斜纹表示对应指标覆盖不足。':'所选范围尚无利用率历史。采集启用前的日期无法补回。',!!snapshot.storageError);

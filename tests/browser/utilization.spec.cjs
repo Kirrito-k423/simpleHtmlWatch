@@ -8,7 +8,7 @@ function utilizationFixture(period){
   const hours=Array.from({length:days*24},(_,i)=>({at:after+i*3600,mean:i===0?0:2,peak:9,lowPercent:100,coveragePercent:i===0?50:100,observedSeconds:3600,samples:360,occupiedPercent:i===1?null:i===0?100:0,occupancyCoveragePercent:i===1?0:i===0?50:100,occupancyObservedSeconds:i===1?0:3600}));
   const pattern=hours.slice(0,24).map((h,i)=>({...h,at:i}));
   return {source:'npu-smi',timeZone:'Asia/Shanghai',after,before:after+days*86400,generatedAt:new Date().toISOString(),retentionDays:30,bytes:4096,limitBytes:2000000,machines:[
-    {id:'machine-00',name:'机器 <测试>',group:'A5',model:'Ascend950DT',metric:'NPU Util(%)',mean:2,coveragePercent:95,occupiedPercent:10,occupancyCoveragePercent:90,hours,hourOfDay:pattern,lowWindows:[{after:after+3600,before:after+3*3600}]},
+    {id:'machine-00',name:'机器 <测试>',group:'A5',model:'Ascend950DT',metric:'NPU Util(%)',mean:2,coveragePercent:95,occupiedPercent:10,occupancyCoveragePercent:90,workingHoursSummary:{mean:0,coveragePercent:80,occupiedPercent:100,occupancyCoveragePercent:80},nonWorkingHoursSummary:{mean:30,coveragePercent:100,occupiedPercent:null,occupancyCoveragePercent:0},hours,hourOfDay:pattern,lowWindows:[{after:after+3600,before:after+3*3600}]},
     {id:'machine-01',name:'尚无数据',mean:null,coveragePercent:0,occupiedPercent:null,occupancyCoveragePercent:0,hours:hours.map(h=>({...h,mean:null,peak:null,lowPercent:null,coveragePercent:0,samples:0,occupiedPercent:null,occupancyCoveragePercent:0,occupancyObservedSeconds:0})),hourOfDay:pattern.map(h=>({...h,mean:null,peak:null,lowPercent:null,coveragePercent:0,occupiedPercent:null,occupancyCoveragePercent:0,occupancyObservedSeconds:0})),lowWindows:[]}
   ]};
 }
@@ -29,7 +29,13 @@ test('NPU 小时汇总：零与缺失、周规律、明细、CSV、失败与窄�
   await expect(first.first().locator('.util-value').nth(1)).toHaveText('占用 100.0%');
   await expect(first.nth(1).locator('.util-value').nth(1)).toHaveText('占用 —');
   await expect(first.nth(2).locator('.util-value').nth(1)).toHaveText('占用 0.0%');
-  await expect(page.locator('.util-partial')).toHaveCount(2);
+  await expect(page.locator('.util-partial')).toHaveCount(4);
+  await expect(page.locator('.utilization-table thead th').nth(27)).toHaveText('工作时段汇总');
+  await expect(page.locator('.utilization-table thead th').nth(28)).toHaveText('非工作时段汇总');
+  await expect(first.nth(26)).toHaveText('算力 0.0%覆盖 80.0%占用 100.0%覆盖 80.0%');
+  await expect(first.nth(27)).toHaveText('算力 30.0%覆盖 100.0%占用 —覆盖 0.0%');
+  await expect(page.locator('.utilization-note').first()).toContainText('09:00–12:00、14:00–18:00、19:00–20:00');
+  await expect(page.locator('.utilization-table tbody tr').nth(1).locator('td').nth(26)).toHaveText('算力 —覆盖 —占用 —覆盖 —');
   await expect(page.locator('.utilization-table tbody tr').nth(1).locator('td').first()).toHaveText('算力 —占用 —');
   await expect(page.locator('#utilization-storage')).toContainText('/ 1.91 MiB');
   await page.locator('[data-util-machine="0"]').click();
@@ -42,6 +48,9 @@ test('NPU 小时汇总：零与缺失、周规律、明细、CSV、失败与窄�
   expect(queries.at(-1).get('period')).toBe('week');
   await page.locator('[data-util-machine="0"]').click();
   await expect(page.locator('#utilization-detail tbody tr')).toHaveCount(168);
+  const summary=await first.nth(26).textContent();
+  await page.locator('#utilization-day').selectOption({index:1});
+  await expect(first.nth(26)).toHaveText(summary);
   const download=page.waitForEvent('download');
   await page.locator('#utilization-export').click();
   const csv=await readFile(await(await download).path(),'utf8');
@@ -52,6 +61,7 @@ test('NPU 小时汇总：零与缺失、周规律、明细、CSV、失败与窄�
   expect(csv).not.toContain('cardId');
   await page.setViewportSize({width:720,height:900});
   expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(720);
+  await page.locator('#utilization-table').evaluate(el=>{el.scrollLeft=el.scrollWidth;});
   await page.screenshot({path:testInfo.outputPath('npu-utilization.png'),fullPage:true});
   failed=true;await page.locator('#utilization-refresh').click();
   await expect(page.locator('#utilization-message')).toContainText('汇总存储未初始化');

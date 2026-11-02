@@ -23,6 +23,15 @@ type UtilizationWindow struct {
 	After  int64 `json:"after"`
 	Before int64 `json:"before"`
 }
+type UtilizationSummary struct {
+	Mean                     *float64 `json:"mean"`
+	ObservedSeconds          float64  `json:"observedSeconds"`
+	ExpectedSeconds          float64  `json:"expectedSeconds"`
+	CoveragePercent          float64  `json:"coveragePercent"`
+	OccupiedPercent          *float64 `json:"occupiedPercent"`
+	OccupancyCoveragePercent float64  `json:"occupancyCoveragePercent"`
+	OccupancyObservedSeconds float64  `json:"occupancyObservedSeconds"`
+}
 type UtilizationRow struct {
 	ID                       string              `json:"id"`
 	Name                     string              `json:"name"`
@@ -37,6 +46,8 @@ type UtilizationRow struct {
 	OccupiedPercent          *float64            `json:"occupiedPercent"`
 	OccupancyCoveragePercent float64             `json:"occupancyCoveragePercent"`
 	OccupancyObservedSeconds float64             `json:"occupancyObservedSeconds"`
+	WorkingHoursSummary      UtilizationSummary  `json:"workingHoursSummary"`
+	NonWorkingHoursSummary   UtilizationSummary  `json:"nonWorkingHoursSummary"`
 	Hours                    []UtilizationHour   `json:"hours"`
 	HourOfDay                []UtilizationHour   `json:"hourOfDay"`
 	LowWindows               []UtilizationWindow `json:"lowWindows"`
@@ -80,6 +91,20 @@ func addUtilization(a *utilizationBucket, b utilizationBucket) {
 	}
 	if b[4] > a[4] {
 		a[4] = b[4]
+	}
+}
+
+// Every calendar day uses the same Beijing-time, half-open work periods.
+func utilizationWorkingHour(hour int) bool {
+	return hour >= 9 && hour < 12 || hour >= 14 && hour < 18 || hour == 19
+}
+
+func utilizationSummary(b utilizationBucket, expectedMS int64) UtilizationSummary {
+	h := utilizationHour(0, b, expectedMS)
+	return UtilizationSummary{
+		Mean: h.Mean, ObservedSeconds: h.ObservedSeconds, ExpectedSeconds: float64(expectedMS) / 1000,
+		CoveragePercent: h.CoveragePercent, OccupiedPercent: h.OccupiedPercent,
+		OccupancyCoveragePercent: h.OccupancyCoveragePercent, OccupancyObservedSeconds: h.OccupancyObservedSeconds,
 	}
 }
 
@@ -151,6 +176,8 @@ func (u *Utilization) Report(config Config, after, before time.Time, machineID, 
 		var expectedTotal int64
 		var hourSums [24]utilizationBucket
 		var expectedHours [24]int64
+		var periodSums [2]utilizationBucket
+		var expectedPeriods [2]int64
 		var window *UtilizationWindow
 		for at := after; at.Before(before); at = at.Add(time.Hour) {
 			expected := int64(0)
@@ -167,6 +194,12 @@ func (u *Utilization) Report(config Config, after, before time.Time, machineID, 
 			addUtilization(&total, b)
 			expectedTotal += expected
 			hour := at.In(chinaTime).Hour()
+			period := 0
+			if utilizationWorkingHour(hour) {
+				period = 1
+			}
+			addUtilization(&periodSums[period], b)
+			expectedPeriods[period] += expected
 			addUtilization(&hourSums[hour], b)
 			expectedHours[hour] += expected
 			// A candidate requires a completed hour with >=90% coverage and
@@ -188,6 +221,8 @@ func (u *Utilization) Report(config Config, after, before time.Time, machineID, 
 		summary := utilizationHour(0, total, expectedTotal)
 		row.Mean, row.CoveragePercent = summary.Mean, summary.CoveragePercent
 		row.OccupiedPercent, row.OccupancyCoveragePercent, row.OccupancyObservedSeconds = summary.OccupiedPercent, summary.OccupancyCoveragePercent, summary.OccupancyObservedSeconds
+		row.WorkingHoursSummary = utilizationSummary(periodSums[1], expectedPeriods[1])
+		row.NonWorkingHoursSummary = utilizationSummary(periodSums[0], expectedPeriods[0])
 		for hour := 0; hour < 24; hour++ {
 			row.HourOfDay = append(row.HourOfDay, utilizationHour(int64(hour), hourSums[hour], expectedHours[hour]))
 		}

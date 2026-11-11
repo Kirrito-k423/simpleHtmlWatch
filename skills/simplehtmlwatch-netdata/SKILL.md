@@ -57,7 +57,7 @@ python3 "$SKILL_DIR/scripts/metricsctl.py" --instance <实例名> utilization --
 - 仅返回整机均值、整机均值峰值、低于 10% 的已观测时长占比、覆盖率和采样数，没有单卡历史。`hours` 是逐小时数据，`hourOfDay` 是窗口内同一小时的加权汇总，`lowWindows` 是连续合格小时。
 - 均值按有效观测时长加权，采样之间采用有时限的前值估计；失联不补零。来源注明 NPU 型号和 `AICore(%)` 或 `NPU Util(%)`，不要混同指标、不同 SSH 地址的同名机器行，或把机器平均值解释为所有卡都空闲。
 - 任意设备在 `npu-smi` 进程表中有进程，整机就计占用，包括算力为 0% 的进程。`occupiedPercent` 为被占用时长／进程状态明确的观测时长；按小时、窗口及同小时规律汇总。分别报告 `occupancyCoveragePercent` 和分母 `occupancyObservedSeconds`，按该分母加权，不直接平均百分比。未知进程表及升级前未采集的历史返回 null，不能补空闲；进程 PID／名称和单卡明细不保存。
-- v0.8.2 每机器新增 `workingHoursSummary`、`nonWorkingHoursSummary`。每天北京时间 09:00–12:00、14:00–18:00、19:00–20:00 为工作时段（含开始、不含结束，周末同样划分），其余为非工作时段；两组沿用查询范围，分别提供算力／占用及其覆盖率、各自观测秒数和对应时段已过去的 `expectedSeconds`。按各自观测时长加权，不能直接平均百分比，也不能用全窗口覆盖率替代分时段覆盖率；未到来的时段不计入分母，无观测返回 null。原顶层字段和完整性标志仍按全窗口判断。
+- v0.8.3 每机器提供 `workingHoursSummary`、`nonWorkingHoursSummary`。每天北京时间 09:00–12:00、14:00–18:00、19:00–21:00 为工作时段（含开始、不含结束，周末同样划分），其余为非工作时段；两组沿用查询范围，分别提供算力／占用及其覆盖率、各自观测秒数和对应时段已过去的 `expectedSeconds`。按各自观测时长加权，不能直接平均百分比，也不能用全窗口覆盖率替代分时段覆盖率；未到来的时段不计入分母，无观测返回 null。原顶层字段和完整性标志仍按全窗口判断。
 - 候选低谷要求完整小时覆盖至少 90%，且至少 90% 已观测时长的整机均值低于 10%。调度前仍检查当前 HBM、进程及中台任务占用，利用率查询本身不提交任务。
 - `utilizationComplete`、`occupancyComplete` 分别表示所有返回机器对应窗口值有效、覆盖至少 90%、无存储错误，`complete` 要求两项都满足，不能替代逐小时各自覆盖率。退出码 3 表示任意历史不全／没有数据／存储错误；有效部分仍可报告。旧算力数据完整但新增占用历史不足也会返回 3；未采集的过去无法补回。
 - 独立压缩小时桶目录最多 2 MB、保留含今天的最近 30 天，先淘汰过期或最早日期；不保存原始采样或单卡明细。结合 `bytes`、`limitBytes`、`storageError` 判断持久化是否正常。更完整的口径见发布包 `docs/utilization.md`。
@@ -95,3 +95,11 @@ python3 "$SKILL_DIR/scripts/metricsctl.py" --instance <实例名> idle-ranking -
 需要提交/回收长任务时，读取 `cluster-task-controller` Skill。指标客户端不执行任务、不解除未知占用、不管理正式实例生命周期。分发时只复制本 Skill 目录或发布的 Skill zip，不包含机器清单、SSH 密钥、Agent 数据库或运行实例目录。
 
 独立分发的Skill内附 [空闲排序协议](references/idle-ranking.md)，包含JSON字段、门槛和领用流程。
+
+## 今日独立空闲窗口
+
+`metricsctl.py --instance <实例名> availability --scope work|off|all [--group 分组]` 查询今天 00:00 至当前已经过去的时段，默认 work。要求 `daily-idle-windows-v1`，缺少能力只报告维护者，不自动启停或升级。工作时段为每天北京时间 09:00–12:00、14:00–18:00、19:00–21:00。
+
+`counts.minutes120/60/30/15/5` 为五档各自独立、同档不重叠的历史空闲窗个数，不能把不同档相加或把零散空闲拼成长窗。跨被排除时段、断连、重启、未知状态会切断连续性。全部 NPU 无进程且算力为零才计空闲，沿用有时限前值估计，不能检测所有采样间短进程。读取各自 coveragePercent、expectedSeconds、unknownSeconds、fragmentSeconds、historyTruncated、storageError；未知不等于占用，零个观测窗口不证明全天没有机会。
+
+客户端 complete 要求全部覆盖、无保存错误及裁剪；退出码3时保留有效数据但必须说明不完整。新记录从升级后积累，不用旧小时／五分钟均值还原连续段。全体按配置物理资源ID去重，未标识跳板入口可能仍重复。历史机会不代表未来可独占，提交实验前仍需实时检查及预约。详见发布包 docs/availability.md。

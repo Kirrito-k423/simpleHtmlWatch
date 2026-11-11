@@ -8,6 +8,7 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%23c4f36a'/%3E%3Cpath d='M8 23h7l4-12 5 20 3-8h5' fill='none' stroke='%23121b12' stroke-width='3'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/style.css"><script src="/page-rotation.js" defer></script><script src="/app.js" defer></script><script src="/execution.js" defer></script><script src="/task-timeline.js" defer></script><script src="/task-download.js" defer></script><script src="/tasks.js" defer></script><link rel="stylesheet" href="/execution.css"><link rel="stylesheet" href="/tasks.css">
     <link rel="stylesheet" href="/metrics.css"><script src="/metric-plots.js" defer></script><script src="/metrics.js" defer></script>
+    <link rel="stylesheet" href="/availability.css"><script src="/availability.js" defer></script>
     <link rel="stylesheet" href="/utilization.css"><script src="/utilization.js" defer></script>
     <link rel="stylesheet" href="/idle-ranking.css"><script src="/idle-ranking.js" defer></script>
     <link rel="stylesheet" href="/continuations.css"><script src="/continuations.js" defer></script>
@@ -23,7 +24,7 @@
       <div class="tabs" id="view-tabs"><button data-view="npu" class="active">NPU 状态</button><button data-view="python">Python 进程</button><button data-view="usage">CPU / 内存</button><button data-view="custom">自定义</button></div>
       <div class="filters"><input id="search" type="search" placeholder="名称 / IP" aria-label="搜索机器"><select id="group-filter" aria-label="机器分组"><option value="">所有分组</option></select><select id="layout" aria-label="同屏台数"><option value="2">2 台 / 屏</option><option value="4">4 台 / 屏</option><option value="8">8 台 / 屏</option><option value="16" selected>16 台 / 屏</option></select><select id="output-position" aria-label="内容位置" title="统一定位所有机器输出的可见区域"><option value="top-left" selected>正文 · 左上</option><option value="top-right">正文 · 右上</option><option value="center">正文 · 居中</option><option value="bottom-left">正文 · 左下</option><option value="bottom-right">正文 · 右下</option></select><button id="refresh-btn" title="立即采集" aria-label="立即采集">↻</button><button id="pause-btn" title="暂停本页面显示更新，后台继续采集">Ⅱ 暂停</button></div>
     </div>
-    <div class="top-actions"><button id="idle-ranking-btn">空闲机器排序</button><button id="utilization-btn">NPU 利用率</button><button id="metrics-btn">系统指标</button><a class="task-top-link" href="/?tasks=1">任务中台</a><button id="ssh-btn">SSH 终端</button><button id="execution-btn">批量执行</button><button id="settings-btn">⚙ 管理机器</button><button id="fullscreen-btn" title="进入全屏，按 Esc 退出">⛶ 全屏</button></div>
+    <div class="top-actions"><button id="availability-btn">实验空闲窗口</button><button id="idle-ranking-btn">空闲机器排序</button><button id="utilization-btn">NPU 利用率</button><button id="metrics-btn">系统指标</button><a class="task-top-link" href="/?tasks=1">任务中台</a><button id="ssh-btn">SSH 终端</button><button id="execution-btn">批量执行</button><button id="settings-btn">⚙ 管理机器</button><button id="fullscreen-btn" title="进入全屏，按 Esc 退出">⛶ 全屏</button></div>
   </header>
   <main>
     <section id="task-panel" aria-label="集群任务中台" hidden></section>
@@ -58,6 +59,19 @@
       <p class="idle-ranking-note">“零占用”指已观测时段中没有 NPU 进程。滚动窗口只使用完整的5分钟桶，各小时覆盖须≥90%；覆盖不足、断连和升级前缺失历史不补零。当前资源条件要求成功、新鲜、完整的采样、所有设备无进程且算力为0，并满足所填HBM及设备条件，同时没有中台任务、预约或等待单占用。网页打开时每10秒重新检查；本机JSON在启动及北京时间整点、半点保存。列表与文件均为候选顺序，实际领用前仍需重新检查并申请预约。</p>
     </div>
   </dialog>
+  <dialog id="availability-dialog" class="availability-dialog" aria-labelledby="availability-title">
+    <div class="dialog-heading"><div><h2 id="availability-title">实验空闲窗口 · 全体汇总</h2><p>今天 00:00 至当前 · 北京时间 · 连续整机 NPU 空闲机会</p></div><button id="availability-close" type="button" aria-label="关闭实验空闲窗口">✕</button></div>
+    <div class="availability-body">
+      <div class="availability-controls"><label>范围<select id="availability-scope"><option value="work" selected>工作时段</option><option value="off">非工作时段</option><option value="all">全天</option></select></label><label>分组<select id="availability-group"><option value="">所有分组</option></select></label><button id="availability-refresh" type="button">刷新统计</button><button id="availability-png" type="button" disabled>导出 PNG</button><button id="availability-svg" type="button" disabled>导出 SVG</button><button id="availability-csv" type="button" disabled>导出明细 CSV</button></div>
+      <div id="availability-message" role="status"></div><p id="availability-meta"></p>
+      <p class="availability-note">工作时段：每天 09:00–12:00、14:00–18:00、19:00–21:00；其余为非工作时段。仅统计所选时段已经过去的部分，跨午休、晚休的空闲段分别计数。</p>
+      <div id="availability-summary" class="availability-summary"></div>
+      <div id="availability-chart" class="availability-chart"></div>
+      <p class="availability-note">绿色为完整半小时空闲窗；黄色为剩余不足半小时的碎片空闲，红色为已观测占用，灰色为未观测。图中各色时长除以 30 分钟折合容量；未知不能解释为占用。</p>
+      <div id="availability-table" class="availability-table"></div>
+      <p class="availability-note">同一档内窗口互不重叠，各档分别计算：连续空闲 70 分钟 = 2 小时 0 个、1 小时 1 个、半小时 2 个、15 分钟 4 个、5 分钟 14 个。仅当全部 NPU 无进程且算力为零才记录空闲；采样失败、未知和停机时段打断连续性。记录使用有时限的前值估计，不能发现两次采样之间的所有短进程，也不保证未来独占。新记录从升级后积累，旧均值不能恢复精确连续段；同一物理机器的多个入口应填写相同物理资源 ID。领用前仍需实时检查并预约。</p>
+    </div>
+  </dialog>
   <dialog id="utilization-dialog" class="utilization-dialog" aria-labelledby="utilization-title">
     <div class="dialog-heading"><div><h2 id="utilization-title">机器级 NPU 利用率</h2><p>每台机器按小时汇总 · 北京时间</p></div><button id="utilization-close" type="button" aria-label="关闭 NPU 利用率">✕</button></div>
     <div class="utilization-body">
@@ -65,7 +79,7 @@
       <div id="utilization-message" role="status"></div><p id="utilization-storage"></p>
       <div class="utilization-legend"><span>上行：平均算力</span><span class="util-low">低于 10%</span><span class="util-mid">10–50%</span><span class="util-high">50% 及以上</span><span>下行：占用时长</span><span class="util-idle">无占用</span><span class="util-occupied">有占用</span><span>— 缺失</span><span>斜纹：对应指标覆盖不足 90%</span></div>
       <div id="utilization-table" class="utilization-table-wrap"></div>
-      <p class="utilization-note">工作时段：每天 09:00–12:00、14:00–18:00、19:00–20:00（北京时间，含开始、不含结束）；非工作时段为其余时间。三组汇总均覆盖所选范围，按有效观测时长加权；切换日期视图不改变汇总范围。今天的覆盖率仅计算已过去的对应时段。</p>
+      <p class="utilization-note">工作时段：每天 09:00–12:00、14:00–18:00、19:00–21:00（北京时间，含开始、不含结束）；非工作时段为其余时间。三组汇总均覆盖所选范围，按有效观测时长加权；切换日期视图不改变汇总范围。今天的覆盖率仅计算已过去的对应时段。</p>
       <details class="utilization-windows"><summary>已观测到的低负载时段</summary><div id="utilization-windows"></div></details>
       <section id="utilization-detail"></section>
       <p class="utilization-note">算力为整机各 NPU 利用率的平均值。任意一张卡有 NPU 进程即视为整机占用；占用比例＝被占用时长／进程状态明确的观测时长，配合占用覆盖率阅读。两项按小时并列展示，点击机器查看明细。采样间采用有时限的前值估计，断连、未知及升级前未采集的占用历史不补零。历史低负载不能证明当前资源允许部署。</p>

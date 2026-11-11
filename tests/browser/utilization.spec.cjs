@@ -20,7 +20,7 @@ test('NPU 小时汇总：零与缺失、周规律、明细、CSV、失败与窄�
     if(failed)return route.fulfill({status:503,json:{error:'汇总存储未初始化'}});
     return route.fulfill({json:utilizationFixture(q.get('period'))});
   });
-  await page.goto('/');
+  await page.goto('/');await page.locator('#availability-close').click();
   await page.locator('#utilization-btn').click();
   await expect(page.locator('#utilization-dialog')).toBeVisible();
   await expect(page.locator('.utilization-table tbody tr')).toHaveCount(2);
@@ -34,7 +34,7 @@ test('NPU 小时汇总：零与缺失、周规律、明细、CSV、失败与窄�
   await expect(page.locator('.utilization-table thead th').nth(28)).toHaveText('非工作时段汇总');
   await expect(first.nth(26)).toHaveText('算力 0.0%覆盖 80.0%占用 100.0%覆盖 80.0%');
   await expect(first.nth(27)).toHaveText('算力 30.0%覆盖 100.0%占用 —覆盖 0.0%');
-  await expect(page.locator('.utilization-note').first()).toContainText('09:00–12:00、14:00–18:00、19:00–20:00');
+  await expect(page.locator('.utilization-note').first()).toContainText('09:00–12:00、14:00–18:00、19:00–21:00');
   await expect(page.locator('.utilization-table tbody tr').nth(1).locator('td').nth(26)).toHaveText('算力 —覆盖 —占用 —覆盖 —');
   await expect(page.locator('.utilization-table tbody tr').nth(1).locator('td').first()).toHaveText('算力 —占用 —');
   await expect(page.locator('#utilization-storage')).toContainText('/ 1.91 MiB');

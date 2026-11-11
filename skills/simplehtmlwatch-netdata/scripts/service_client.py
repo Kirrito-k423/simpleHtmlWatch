@@ -83,7 +83,9 @@ class Client:
         self.instance, self.service_id = args.instance, args.service_id
         self.expect_version = args.expect_version
         self.required = set(args.require_capability)
-        if args.action == "utilization":
+        if args.action == "availability":
+            self.required.add("daily-idle-windows-v1")
+        elif args.action == "utilization":
             self.required.add("accelerator-utilization-v1")
             self.required.add("accelerator-occupancy-v1")
         elif args.action == "idle-ranking":
@@ -140,7 +142,7 @@ class Client:
         return live
 
     def api(self, path):
-        if path.split("?", 1)[0] not in ("/api/config", "/api/status", "/api/metrics", "/api/utilization", "/api/idle-ranking"):
+        if path.split("?", 1)[0] not in ("/api/config", "/api/status", "/api/metrics", "/api/utilization", "/api/idle-ranking", "/api/availability"):
             raise ValueError("只允许机器清单、状态、系统指标与利用率汇总接口")
         info = self.discover()
         url, run_id = info["url"], info["runId"]

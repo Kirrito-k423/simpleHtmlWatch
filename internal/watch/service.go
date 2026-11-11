@@ -259,6 +259,7 @@ func AcquireService(dir, instance, version string, port int, explicitPort, adopt
 		PID: os.Getpid(), StartedAt: time.Now().UTC().Format(time.RFC3339Nano),
 	}
 	info.Capabilities = append(info.Capabilities, "upgrade-backup-archive-v1")
+	info.Capabilities = append(info.Capabilities, availabilityCapability)
 	success = true
 	return &ServiceLease{Info: info, Listener: listener, unlock: unlock}, nil, nil
 }

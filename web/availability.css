@@ -1,0 +1,22 @@
+.availability-dialog{width:min(1450px,96vw)}
+.availability-body{padding:18px 22px;max-height:80dvh;overflow:auto}
+.availability-controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.availability-controls label{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+.availability-controls button,.availability-controls select{padding:6px 10px;font-size:12px}
+#availability-message,#availability-meta,.availability-note{font-size:12px;line-height:1.8;color:var(--muted)}
+#availability-message.error{color:var(--amber)}
+.availability-summary{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:15px 0}
+.availability-summary>div{padding:12px 16px;border:1px solid var(--border);border-radius:8px}
+.availability-summary span{display:block;font-size:12px;color:var(--muted)}
+.availability-summary strong{display:block;font-size:27px;margin-top:6px;color:var(--accent,#c4f36a)}
+.availability-summary small{font-size:12px;color:var(--muted);font-weight:400}
+.availability-chart{overflow:auto;max-height:55dvh;border-radius:8px;background:#fff;margin:15px 0}
+.availability-chart:empty{display:none}
+.availability-chart svg{display:block;width:100%;min-width:850px;height:auto}
+.availability-table{overflow:auto;margin-top:15px;max-height:45dvh}
+.availability-table table{width:100%;border-collapse:collapse;white-space:nowrap;font-size:12px}
+.availability-table th,.availability-table td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--border)}
+.availability-table th small{display:block;color:var(--muted);font-size:10px;margin-top:4px;font-weight:400}
+.availability-table thead th{position:sticky;top:0;background:var(--surface,#11151c)}
+.availability-table td:nth-child(4){font-weight:700;color:var(--accent,#c4f36a)}
+@media(max-width:760px){.availability-body{padding:12px}.availability-summary{grid-template-columns:repeat(2,1fr)}.availability-chart{max-height:45dvh}}

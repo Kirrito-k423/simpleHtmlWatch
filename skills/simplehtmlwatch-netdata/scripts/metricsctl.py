@@ -117,6 +117,16 @@ def run(args, client):
         return client.discover(), 0
     if args.action == "machines":
         return {"machines": machines(client)}, 0
+    if args.action == "availability":
+        params = {"scope": args.scope}
+        if args.group:
+            params["group"] = args.group
+        query = urllib.parse.urlencode(params)
+        output = client.api("/api/availability" + ("?" + query if query else ""))
+        if output.get("schema") != "simplehtmlwatch.daily-idle-windows.v1" or not isinstance(output.get("machines"), list):
+            raise ValueError("全天窗口汇总响应无效")
+        output["complete"] = bool(output["machines"]) and not output.get("storageError") and not output.get("historyTruncated") and output.get("coveragePercent", 0) >= 100
+        return output, 0 if output["complete"] else 3
     if args.action == "idle-ranking":
         output = client.api(idle_ranking_path(args))
         if output.get("schema") != "simplehtmlwatch.idle-ranking.v1" or not isinstance(output.get("machines"), list) or output.get("requiresLiveCheck") is not True:
@@ -183,6 +193,9 @@ def main(argv=None):
     selector.add_argument("--task", help="任务 ID")
     s = sub.add_parser("summary", help="串行查询目标组所有已启用机器，报告跳过及失败")
     s.add_argument("--group", help="限制机器组")
+    availability = sub.add_parser("availability", help="查询今日独立空闲窗口及半小时容量汇总")
+    availability.add_argument("--group", help="限制机器组，按物理标识去重")
+    availability.add_argument("--scope", choices=("work", "off", "all"), default="work", help="工作时段、非工作时段或全天，默认工作时段")
     u = sub.add_parser("utilization", help="查询机器级 NPU 小时汇总，不需要启用 Netdata")
     u.add_argument("--period", choices=("today", "yesterday", "week"), help="今天、昨天或近 7 个完整自然日，默认昨天")
     u.add_argument("--date", help="起始北京时间日期 YYYY-MM-DD")

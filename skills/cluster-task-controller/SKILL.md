@@ -131,3 +131,7 @@ python3 "$TASKCTL" storage
 外部启动器或 SSH 转发日志不会自动纳入任务预算。已有维护授权时可明确配置 `-bounded-log`，每个诊断日志超过 64 KiB 保留末尾 32 KiB，最多 8 个、每 30 秒检查；这会丢弃较早诊断行，不能用于实验输出。客户端不要自行改启动参数。
 
 独立分发的Skill内附 [空闲排序协议](references/idle-ranking.md)，包含JSON字段、门槛和领用流程。
+
+## 实验窗口监控补充
+
+首页新增五档历史实验机会及半小时全体图，能力为 daily-idle-windows-v1。图中的历史窗口不构成任务授权、未来空闲保证或资源预约；未知时间不能视为空闲。需要 AI 只读统计时使用包内 simplehtmlwatch-netdata 的 metricsctl.py availability --scope work|off|all。服务缺少能力时仅报告，不启动、重启或换构建。详见发布包 docs/availability.md。

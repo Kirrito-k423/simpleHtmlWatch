@@ -194,7 +194,7 @@ function render() {
   $('#demo-tag').hidden = !demo; $('#exit-demo').hidden = !demo; $('#settings-btn').disabled = demo;
   if ($('#detail-dialog').open) updateDetail();
 }
-async function loadConfig() { const data = await api('config'); config = data.config; commands = data.commands; resetCustomEditor(); if (savedCustoms().some(c => c.enabled)) { customID = savedCustoms().find(c => c.enabled).id; syncCustomEditor(); view = 'custom'; } setGroups(); }
+async function loadConfig() { const data = await api('config'); config = data.config; commands = data.commands; resetCustomEditor(); if (savedCustoms().some(c => c.enabled)) { customID = savedCustoms().find(c => c.enabled).id; syncCustomEditor(); } setGroups(); }
 async function poll() {
   if (!demo && !paused && !busy) {
     try { states = await api('status'); backendOK = true; $('#connection-error').hidden = true; render(); }
@@ -363,4 +363,4 @@ function enterDemo() {
 }
 $('#demo-btn').onclick = enterDemo;
 $('#exit-demo').onclick = async () => { try { await loadConfig(); demo=false; states={}; page=0; render(); } catch(e) { toast(e.message); } };
-(async () => { try { await loadConfig(); render(); if (new URLSearchParams(location.search).get('demo') === '1') enterDemo(); } catch(e) { $('#connection-error').hidden=false; $('#connection-error').textContent=e.message; } poll(); })();
+window.watchReady = (async () => { let loaded=false; try { await loadConfig(); loaded=true; render(); if (new URLSearchParams(location.search).get('demo') === '1') enterDemo(); } catch(e) { $('#connection-error').hidden=false; $('#connection-error').textContent=e.message; } poll(); return loaded; })();

@@ -157,6 +157,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	http.FileServer(http.FS(s.assets)).ServeHTTP(w, r)
 }
 func (s *Server) api(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/api/availability" {
+		s.availabilityAPI(w, r)
+		return
+	}
 	if r.URL.Path == "/api/idle-ranking" {
 		s.idleRankingAPI(w, r)
 		return

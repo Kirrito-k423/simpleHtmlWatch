@@ -8,7 +8,7 @@ import (
 )
 
 func TestUtilizationWorkingHoursBoundaries(t *testing.T) {
-	want := map[int]bool{9: true, 10: true, 11: true, 14: true, 15: true, 16: true, 17: true, 19: true}
+	want := map[int]bool{9: true, 10: true, 11: true, 14: true, 15: true, 16: true, 17: true, 19: true, 20: true}
 	for hour := 0; hour < 24; hour++ {
 		if utilizationWorkingHour(hour) != want[hour] {
 			t.Fatalf("wrong work period at Beijing hour %d", hour)
@@ -53,10 +53,10 @@ func TestUtilizationPeriodSummariesWeightedAcrossDays(t *testing.T) {
 	closeEnough(t, rest.Mean, 180.0/11)
 	closeEnough(t, work.OccupiedPercent, 350.0/11)
 	closeEnough(t, rest.OccupiedPercent, 350.0/11)
-	if work.ExpectedSeconds != 3*8*3600 || rest.ExpectedSeconds != 3*16*3600 {
+	if work.ExpectedSeconds != 3*9*3600 || rest.ExpectedSeconds != 3*15*3600 {
 		t.Fatalf("work/non-work denominators incorrect: %+v %+v", work, rest)
 	}
-	if work.ObservedSeconds != 5*6600 || rest.ObservedSeconds != 7*6600 || work.OccupancyObservedSeconds != 5*3300 || rest.OccupancyObservedSeconds != 7*3300 {
+	if work.ObservedSeconds != 6*6600 || rest.ObservedSeconds != 6*6600 || work.OccupancyObservedSeconds != 6*3300 || rest.OccupancyObservedSeconds != 6*3300 {
 		t.Fatalf("periods mixed or observations lost: %+v %+v", work, rest)
 	}
 	for _, s := range []UtilizationSummary{work, rest} {

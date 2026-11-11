@@ -20,7 +20,7 @@ test('五档空闲排序：历史与实时状态、过滤、JSON、自动检查�
     queries.push(new URL(route.request().url()).searchParams);
     return failed?route.fulfill({status:503,json:{error:'空闲排序未初始化'}}):route.fulfill({json:fixture()});
   });
-  await page.goto('/');await page.locator('#idle-ranking-btn').click();
+  await page.goto('/');await page.locator('#availability-close').click();await page.locator('#idle-ranking-btn').click();
   await expect(page.locator('#idle-ranking-dialog')).toBeVisible();
   await expect(page.locator('#idle-ranking-table tbody tr')).toHaveCount(3);
   await expect(page.locator('#idle-ranking-message')).toContainText('可推荐 1 台');

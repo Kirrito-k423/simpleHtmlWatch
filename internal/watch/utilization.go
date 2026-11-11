@@ -88,20 +88,24 @@ type utilizationPending struct {
 	occupied       bool
 }
 type Utilization struct {
-	recent      map[string]*occupancySeries
-	recentBytes int64
-	recentError string
-	mu          sync.Mutex
-	dir         string
-	days        map[string]*utilizationDay
-	dirty       map[string]bool
-	pending     map[string]utilizationPending
-	bytes       int64
-	limit       int64
-	lastError   string
-	now         func() time.Time
-	stop        chan struct{}
-	wg          sync.WaitGroup
+	daily        availabilityDisk
+	dailyBytes   int64
+	dailyError   string
+	dailyBlocked bool
+	recent       map[string]*occupancySeries
+	recentBytes  int64
+	recentError  string
+	mu           sync.Mutex
+	dir          string
+	days         map[string]*utilizationDay
+	dirty        map[string]bool
+	pending      map[string]utilizationPending
+	bytes        int64
+	limit        int64
+	lastError    string
+	now          func() time.Time
+	stop         chan struct{}
+	wg           sync.WaitGroup
 }
 
 func NewUtilization(dir string) (*Utilization, error) {
@@ -164,6 +168,11 @@ func newUtilization(dir string, now func() time.Time) (*Utilization, error) {
 	}
 	if err := u.loadRecent(); err != nil {
 		return nil, err
+	}
+	if err := u.loadAvailability(); err != nil {
+		u.daily = availabilityDisk{}
+		u.resetAvailabilityDay()
+		u.dailyError, u.dailyBlocked = err.Error(), true
 	}
 	return u, nil
 }
@@ -261,6 +270,7 @@ func (u *Utilization) advance(p utilizationPending, end time.Time) utilizationPe
 		ms := next.Sub(p.cursor).Milliseconds()
 		if ms > 0 {
 			u.advanceRecent(p, p.cursor, next)
+			u.advanceAvailability(p, p.cursor, next)
 			b := u.bucket(p.cursor, p)
 			b[1] += ms
 			b[2] += p.basis * ms
@@ -414,6 +424,12 @@ func (u *Utilization) Flush() error {
 	defer u.mu.Unlock()
 	err := u.flushLocked()
 	recentErr := u.flushRecentLocked()
+	dailyErr := u.flushAvailabilityLocked()
+	if dailyErr != nil {
+		u.dailyError = dailyErr.Error()
+	} else {
+		u.dailyError = ""
+	}
 	u.recentError = ""
 	if recentErr != nil {
 		u.recentError = recentErr.Error()
@@ -425,6 +441,9 @@ func (u *Utilization) Flush() error {
 	}
 	if err != nil {
 		return err
+	}
+	if dailyErr != nil {
+		return dailyErr
 	}
 	return recentErr
 }

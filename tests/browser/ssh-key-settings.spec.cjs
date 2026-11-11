@@ -20,7 +20,7 @@ test('SSH key 设置：密码可选、保存私钥路径和口令、导出不包
     if (!config) config = await (await route.fetch()).json();
     return route.fulfill({json:config});
   });
-  await page.goto('/');
+  await page.goto('/');await page.locator('#availability-close').click();
   await page.locator('#settings-btn').click();
   await expect(page.locator('#settings-dialog')).toBeVisible();
   await page.locator('#add-profile').click();

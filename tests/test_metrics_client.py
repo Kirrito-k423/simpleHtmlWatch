@@ -131,6 +131,21 @@ class ClientTests(unittest.TestCase):
 
 
 class SummaryTests(unittest.TestCase):
+    def test_availability_scope_and_partial_history(self):
+        fake = unittest.mock.Mock()
+        args = argparse.Namespace(action="availability", group="A5 B01", scope="work")
+        fake.api.return_value = {"schema": "simplehtmlwatch.daily-idle-windows.v1", "machines": [{"counts": {"minutes5": 0}}], "coveragePercent": 0}
+        result, code = metricsctl.run(args, fake)
+        self.assertEqual(code, 3)
+        self.assertFalse(result["complete"])
+        self.assertEqual(result["machines"][0]["counts"]["minutes5"], 0)
+        self.assertIn("scope=work", fake.api.call_args[0][0])
+        self.assertIn("group=A5+B01", fake.api.call_args[0][0])
+        fake.api.return_value["coveragePercent"] = 100
+        self.assertEqual(metricsctl.run(args, fake)[1], 0)
+        fake.api.return_value["historyTruncated"] = True
+        self.assertEqual(metricsctl.run(args, fake)[1], 3)
+
     def test_utilization_missing_history_has_exit_three_without_zero_fill(self):
         fake = unittest.mock.Mock()
         fake.api.return_value = {"source": "npu-smi", "machines": [{"id": "m1", "mean": None, "coveragePercent": 0, "hours": [{"mean": None}]}]}

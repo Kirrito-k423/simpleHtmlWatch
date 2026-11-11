@@ -29,7 +29,7 @@ test('系统指标：联动悬停、缩放、任务关联、失败清空与窄�
     if (mode === 'partial') { data.charts[2].error = '磁盘采集器未启用'; data.charts[2].series = []; }
     await route.fulfill({json:data});
   });
-  await page.goto('/');
+  await page.goto('/');await page.locator('#availability-close').click();
   await page.locator('#metrics-btn').click();
   await expect(page.locator('#metrics-dialog')).toBeVisible();
   await expect(page.locator('.metric-plot')).toHaveCount(4);
@@ -81,7 +81,7 @@ test('Netdata 设置与导出：令牌遮蔽、导入停用、旧配置默认关
     if (!config) config = (await (await route.fetch()).json()).config;
     await route.fulfill({json:{config,commands:[{id:'npu',name:'NPU 状态'},{id:'python',name:'Python 进程'},{id:'usage',name:'Python CPU / 内存'}]}});
   });
-  await page.goto('/');
+  await page.goto('/');await page.locator('#availability-close').click();
   await page.locator('#settings-btn').click();
   const row = page.locator('.machine-edit').first();
   await expect(row.locator('[data-netdata="enabled"]')).not.toBeChecked();

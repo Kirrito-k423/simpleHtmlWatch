@@ -96,7 +96,7 @@ func addUtilization(a *utilizationBucket, b utilizationBucket) {
 
 // Every calendar day uses the same Beijing-time, half-open work periods.
 func utilizationWorkingHour(hour int) bool {
-	return hour >= 9 && hour < 12 || hour >= 14 && hour < 18 || hour == 19
+	return hour >= 9 && hour < 12 || hour >= 14 && hour < 18 || hour >= 19 && hour < 21
 }
 
 func utilizationSummary(b utilizationBucket, expectedMS int64) UtilizationSummary {

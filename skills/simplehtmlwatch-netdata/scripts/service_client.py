@@ -85,6 +85,8 @@ class Client:
         self.required = set(args.require_capability)
         if args.action == "availability":
             self.required.add("daily-idle-windows-v1")
+            if getattr(args, "nodes", 1) > 1:
+                self.required.add("simultaneous-idle-windows-v1")
         elif args.action == "utilization":
             self.required.add("accelerator-utilization-v1")
             self.required.add("accelerator-occupancy-v1")

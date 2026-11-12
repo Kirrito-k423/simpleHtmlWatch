@@ -131,6 +131,20 @@ class ClientTests(unittest.TestCase):
 
 
 class SummaryTests(unittest.TestCase):
+    def test_availability_multinode_scope_is_not_silently_single(self):
+        fake=unittest.mock.Mock()
+        args=argparse.Namespace(action="availability",group="A5 B07",scope="work",nodes=2)
+        fake.api.return_value={"schema":"simplehtmlwatch.daily-idle-windows.v1","machines":[{"counts":{"minutes5":1}}],"coveragePercent":100,"nodes":2,"countPolicy":"nonoverlapping-feasible-packing-v1"}
+        result,code=metricsctl.run(args,fake)
+        self.assertEqual(code,0)
+        self.assertIn("nodes=2",fake.api.call_args[0][0])
+        fake.api.return_value["nodes"]=1
+        with self.assertRaisesRegex(ValueError,"组网规模"):
+            metricsctl.run(args,fake)
+        args.nodes=3
+        with self.assertRaisesRegex(ValueError,"nodes"):
+            metricsctl.run(args,fake)
+
     def test_availability_scope_and_partial_history(self):
         fake = unittest.mock.Mock()
         args = argparse.Namespace(action="availability", group="A5 B01", scope="work")

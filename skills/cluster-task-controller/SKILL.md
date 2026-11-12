@@ -135,3 +135,5 @@ python3 "$TASKCTL" storage
 ## 实验窗口监控补充
 
 首页新增五档历史实验机会及半小时全体图，能力为 daily-idle-windows-v1。图中的历史窗口不构成任务授权、未来空闲保证或资源预约；未知时间不能视为空闲。需要 AI 只读统计时使用包内 simplehtmlwatch-netdata 的 metricsctl.py availability --scope work|off|all。服务缺少能力时仅报告，不启动、重启或换构建。详见发布包 docs/availability.md。
+
+多机历史候选补充：v0.8.4 的同B组双机／四机／8机窗口只提供历史保守可行排布，不能替代整组预约。必须核对固定同组物理成员与相同时段，不能把每台独立空闲个数相加、跨B组或中途更换成员。只读查询使用 metricsctl.py availability --nodes 2|4|8；能力 simultaneous-idle-windows-v1 缺失时只报告维护者。

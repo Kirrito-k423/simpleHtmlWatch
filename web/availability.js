@@ -14,7 +14,8 @@
   const observer=new ResizeObserver(queueDraw);observer.observe(el('chart'));
   function render(){
     const data=snapshot,multi=(data.nodes||1)>1;
-    el('meta').textContent=scopeNames[data.scope]+' · '+stamp(data.before)+' · '+data.machineCount+' 节点 / '+data.configuredEntries+' 入口 · 覆盖 '+Number(data.coveragePercent).toFixed(1)+'% · 所选时段已过 '+Number(data.expectedSeconds/3600).toFixed(2)+' 小时';
+    el('meta').textContent=scopeNames[data.scope]+' · '+stamp(data.before)+' · '+data.machineCount+' 节点 / '+data.configuredEntries+' 入口 · 覆盖 '+Number(data.coveragePercent).toFixed(1)+'% · 所选时段已过 '+Number(data.expectedSeconds/3600).toFixed(2)+' 小时 · 图头分母：全空闲理论上限';
+    el('meta').title='理论上限假设所选已过时段内全部合格节点始终空闲；各连续时段分别取整，多机按各 B 组可确认成员数独立分组，不跨组，不把未观测当作已空闲。';
     const problems=[data.storageError&&'历史保存异常：'+data.storageError,data.historyTruncated&&'历史因容量限制裁剪，缺失按未观测处理'].filter(Boolean);
     const excluded=multi?data.machines.filter(row=>row.multiReason).length:0;
     message(problems.length?problems.join('；'):!data.expectedSeconds?'今天尚未进入所选时段。':!data.machines.length?'当前分组没有节点。':multi?'多机为保守可行排布，非最大值；图头是独立实验次数，圆环中心是节点参与次数。'+(excluded?' '+excluded+' 个节点未参与组网，点击查看原因。':''):'五档分别统计，同一档内互不重叠；每张图中心为对应档位窗口个数。',!!problems.length);
@@ -85,6 +86,7 @@
     const rows=[['日期','范围','组网规模','计数口径','资源标识','机器','B组','2小时','1小时','半小时','15分钟','5分钟','最长空闲秒数','空闲秒数','占用秒数','未观测秒数','覆盖率(%)']],day=stamp(snapshot.after).slice(0,10),multi=(snapshot.nodes||1)>1;
     for(const r of snapshot.machines)rows.push([day,scopeNames[snapshot.scope],snapshot.nodes||1,multi?'节点参与次数':'独立空闲窗',r.resourceKey,r.name,r.pool||r.group,r.counts.minutes120,r.counts.minutes60,r.counts.minutes30,r.counts.minutes15,r.counts.minutes5,r.longestIdleSeconds,r.idleSeconds,r.busySeconds,r.unknownSeconds,r.coveragePercent]);
     rows.push([day,scopeNames[snapshot.scope],snapshot.nodes||1,multi?'独立组网实验窗':'独立空闲窗','TOTAL','全体汇总','',...durations.map(d=>snapshot.counts[d.key])]);
+    rows.push([day,scopeNames[snapshot.scope],snapshot.nodes||1,'全空闲理论上限','THEORETICAL','全体汇总','',...durations.map(d=>snapshot.theoreticalCounts?.[d.key]??'')]);
     download(new Blob(['\uFEFF'+rows.map(r=>r.map(quote).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}),'csv',day,snapshot.scope,snapshot.nodes||1);
   };
   (async()=>{if(await window.watchReady){const params=new URLSearchParams(location.search);if(!params.has('tasks')&&params.get('demo')!=='1')el('btn').click();}})();

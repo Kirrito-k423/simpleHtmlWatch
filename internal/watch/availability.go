@@ -252,6 +252,7 @@ type AvailabilityReport struct {
 	Before            time.Time                     `json:"before"`
 	GeneratedAt       time.Time                     `json:"generatedAt"`
 	Counts            IdleWindowCounts              `json:"counts"`
+	TheoreticalCounts IdleWindowCounts              `json:"theoreticalCounts"`
 	MachineCount      int                           `json:"machineCount"`
 	ConfiguredEntries int                           `json:"configuredEntries"`
 	IdleSeconds       float64                       `json:"idleSeconds"`
@@ -351,6 +352,18 @@ func availabilityPeriods(elapsed int64, scope string) ([][2]int64, int64) {
 		}
 	}
 	return periods, expected
+}
+
+// Capacity if all eligible physical nodes were idle throughout the elapsed
+// selected periods. Gaps between periods cannot be joined into longer windows.
+func availabilityTheoreticalCounts(periods [][2]int64, slots int) IdleWindowCounts {
+	counts := IdleWindowCounts{}
+	for _, period := range periods {
+		for _, minutes := range []int{120, 60, 30, 15, 5} {
+			addAvailabilityCount(&counts, minutes, int((period[1]-period[0])/(int64(minutes)*60000))*slots)
+		}
+	}
+	return counts
 }
 
 func (u *Utilization) AvailabilityReport(config Config, group, scope string, nodeOptions ...int) AvailabilityReport {
@@ -467,6 +480,16 @@ func (u *Utilization) AvailabilityReport(config Config, group, scope string, nod
 	if r.Nodes != 1 {
 		planAvailability(&r)
 	}
+	slots := r.MachineCount
+	if r.Nodes > 1 {
+		slots = 0
+		for _, pool := range r.Pools {
+			if pool.Reason == "" {
+				slots += len(pool.Resources) / r.Nodes
+			}
+		}
+	}
+	r.TheoreticalCounts = availabilityTheoreticalCounts(periods, slots)
 	return r
 }
 

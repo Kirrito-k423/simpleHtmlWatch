@@ -109,3 +109,6 @@ python3 "$SKILL_DIR/scripts/metricsctl.py" --instance <实例名> idle-ranking -
 v0.8.4 的 availability 增加 --nodes 1|2|4|8，默认单机；多机须额外核验 simultaneous-idle-windows-v1，缺失不得把单机结果冒充多机，不能触发自动升级。示例：metricsctl.py --instance <实例名> availability --scope work --group "A5 B07" --nodes 4。
 
 只有固定同一批物理节点在同一明确 B 组内全程同时空闲才形成多机窗口。nodes>1 的顶层 counts 是独立实验数，机器 counts 是参与次数；同档不重复抢占节点。8节点同时空闲半小时，双机4次、四机2次、8机1次。countPolicy=nonoverlapping-feasible-packing-v1 表示确定性的保守可行排布，不能宣称全局最大值或累计重叠候选。核对 pools、plans、omittedPlans、multiReason；明细省略不减少计数，身份或历史分组不明时不能宣称完整。窗口仍是历史机会，领用前实时检查并预约。
+
+
+v0.8.6 全体汇总显示实际数／全空闲理论上限与百分比（零分母为 —），增加今天加过去7天的日期选择；每天保留工作／非工作／全天及五档时长、单／双／四／8机统计。历史精确段和无凭据的当天节点清单保存在 occupancy/window-history/，每日期最多256 KiB，共8日期最多2 MiB，超过保留期自动清理专属日文件。历史新增能力 weekly-idle-windows-v1；包内只读命令 metricsctl.py availability --date YYYY-MM-DD，缺少能力只报告。未保存的旧日期明确无历史，不能从小时均值补齐；升级保留今天的既有计数、原实例、配置、任务、预约、结果及预算基线，内置备份包含新目录。

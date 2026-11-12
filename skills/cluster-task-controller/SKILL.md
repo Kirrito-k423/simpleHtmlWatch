@@ -137,3 +137,6 @@ python3 "$TASKCTL" storage
 首页新增五档历史实验机会及半小时全体图，能力为 daily-idle-windows-v1。图中的历史窗口不构成任务授权、未来空闲保证或资源预约；未知时间不能视为空闲。需要 AI 只读统计时使用包内 simplehtmlwatch-netdata 的 metricsctl.py availability --scope work|off|all。服务缺少能力时仅报告，不启动、重启或换构建。详见发布包 docs/availability.md。
 
 多机历史候选补充：v0.8.4 的同B组双机／四机／8机窗口只提供历史保守可行排布，不能替代整组预约。必须核对固定同组物理成员与相同时段，不能把每台独立空闲个数相加、跨B组或中途更换成员。只读查询使用 metricsctl.py availability --nodes 2|4|8；能力 simultaneous-idle-windows-v1 缺失时只报告维护者。
+
+
+v0.8.6 全体汇总显示实际数／全空闲理论上限与百分比（零分母为 —），增加今天加过去7天的日期选择；每天保留工作／非工作／全天及五档时长、单／双／四／8机统计。历史精确段和无凭据的当天节点清单保存在 occupancy/window-history/，每日期最多256 KiB，共8日期最多2 MiB，超过保留期自动清理专属日文件。历史新增能力 weekly-idle-windows-v1；包内只读命令 metricsctl.py availability --date YYYY-MM-DD，缺少能力只报告。未保存的旧日期明确无历史，不能从小时均值补齐；升级保留今天的既有计数、原实例、配置、任务、预约、结果及预算基线，内置备份包含新目录。

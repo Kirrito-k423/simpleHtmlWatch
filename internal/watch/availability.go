@@ -29,10 +29,12 @@ type availabilitySeries struct {
 	Segments    []availabilitySegment `json:"segments"`
 }
 type availabilityDisk struct {
-	Version   int                            `json:"version"`
-	Date      string                         `json:"date"`
-	Truncated bool                           `json:"truncated"`
-	Series    map[string]*availabilitySeries `json:"series"`
+	Inventory      []availabilityMember           `json:"inventory,omitempty"`
+	InventoryKnown bool                           `json:"inventoryKnown,omitempty"`
+	Version        int                            `json:"version"`
+	Date           string                         `json:"date"`
+	Truncated      bool                           `json:"truncated"`
+	Series         map[string]*availabilitySeries `json:"series"`
 }
 
 func (u *Utilization) availabilityPath() string {
@@ -45,73 +47,89 @@ func (u *Utilization) availabilityToday() time.Time {
 func (u *Utilization) resetAvailabilityDay() {
 	date := u.availabilityToday().Format("2006-01-02")
 	if u.daily.Date != date || u.daily.Series == nil {
-		u.daily = availabilityDisk{Version: 1, Date: date, Series: map[string]*availabilitySeries{}}
+		if u.daily.Date != "" && u.daily.Date != date && !u.dailyBlocked {
+			u.ensureAvailabilityHistory()
+			u.availabilityHistory[u.daily.Date] = u.daily
+			u.availabilityDirty[u.daily.Date] = true
+		}
+		u.daily = availabilityDisk{Version: 1, Date: date, Series: map[string]*availabilitySeries{}, Inventory: append([]availabilityMember(nil), u.availabilityInventory...), InventoryKnown: u.availabilityInventoryKnown}
 	}
 }
-func (u *Utilization) loadAvailability() error {
-	u.resetAvailabilityDay()
-	f, err := os.Open(u.availabilityPath())
-	if os.IsNotExist(err) {
-		// Hourly and five-minute averages cannot recover exact idle runs.
-		// Start collecting now; earlier periods remain explicitly unknown.
-		return nil
-	}
+func readAvailabilityDay(path string) (availabilityDisk, int64, error) {
+	var result availabilityDisk
+	info, err := os.Lstat(path)
 	if err != nil {
-		return err
+		return result, 0, err
+	}
+	if !info.Mode().IsRegular() {
+		return result, 0, fmt.Errorf("窗口历史不是普通文件")
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return result, 0, err
 	}
 	defer f.Close()
-	info, err := f.Stat()
+	info, err = f.Stat()
 	if err != nil || info.Size() > availabilityLimit {
-		return fmt.Errorf("全天窗口历史超过256 KiB或无法读取")
+		return result, 0, fmt.Errorf("全天窗口历史超过256 KiB或无法读取")
 	}
 	z, err := gzip.NewReader(f)
 	if err != nil {
-		return fmt.Errorf("全天窗口历史压缩文件损坏")
+		return result, 0, fmt.Errorf("全天窗口历史压缩文件损坏")
 	}
 	defer z.Close()
 	raw, err := io.ReadAll(io.LimitReader(z, availabilityRawLimit+1))
 	if err != nil || len(raw) > availabilityRawLimit {
-		return fmt.Errorf("全天窗口历史解压失败或过大")
+		return result, 0, fmt.Errorf("全天窗口历史解压失败或过大")
 	}
 	// Decode variable-width arrays first so omitted state cannot become idle.
 	var disk struct {
-		Version   int    `json:"version"`
-		Date      string `json:"date"`
-		Truncated bool   `json:"truncated"`
-		Series    map[string]*struct {
+		Inventory      []availabilityMember `json:"inventory"`
+		InventoryKnown bool                 `json:"inventoryKnown"`
+		Version        int                  `json:"version"`
+		Date           string               `json:"date"`
+		Truncated      bool                 `json:"truncated"`
+		Series         map[string]*struct {
 			ResourceKey string             `json:"resourceKey"`
 			Machine     utilizationMachine `json:"machine"`
 			Segments    [][]int64          `json:"segments"`
 		} `json:"series"`
 	}
 	if json.Unmarshal(raw, &disk) != nil || disk.Version != 1 || disk.Series == nil || len(disk.Series) > 256 {
-		return fmt.Errorf("全天窗口历史格式无效")
+		return result, 0, fmt.Errorf("全天窗口历史格式无效")
 	}
 	if _, err := time.ParseInLocation("2006-01-02", disk.Date, chinaTime); err != nil {
-		return fmt.Errorf("全天窗口历史日期无效")
+		return result, 0, fmt.Errorf("全天窗口历史日期无效")
 	}
-	if disk.Date != u.daily.Date {
-		return nil // This bounded ledger keeps only the current calendar day.
+	result = availabilityDisk{Version: 1, Date: disk.Date, Truncated: disk.Truncated, Series: map[string]*availabilitySeries{}, Inventory: disk.Inventory, InventoryKnown: disk.InventoryKnown}
+	if len(disk.Inventory) > 256 {
+		return result, 0, fmt.Errorf("窗口节点清单过大")
+	}
+	seenInventory := map[string]bool{}
+	for _, member := range disk.Inventory {
+		if member.ID == "" || member.Host == "" || member.Port < 1 || member.Port > 65535 || seenInventory[member.ID] {
+			return result, 0, fmt.Errorf("窗口历史节点清单身份无效")
+		}
+		seenInventory[member.ID] = true
 	}
 	count := 0
 	for key, s := range disk.Series {
 		if s == nil || s.ResourceKey == "" || s.Machine.ID == "" || s.Machine.Model == "" || s.Machine.Metric == "" || s.Machine.Address == "" || key != recentSeriesKey(s.Machine, s.ResourceKey) {
-			return fmt.Errorf("全天窗口机器身份无效")
+			return result, 0, fmt.Errorf("全天窗口机器身份无效")
 		}
 		row := &availabilitySeries{ResourceKey: s.ResourceKey, Machine: s.Machine}
 		var previous int64
 		for _, seg := range s.Segments {
 			count++
 			if count > availabilitySegmentLimit || len(seg) != 3 || seg[0] < previous || seg[1] <= seg[0] || seg[1] > availabilityDayMS || seg[2] < 0 || seg[2] > 2 {
-				return fmt.Errorf("全天窗口时间段无效")
+				return result, 0, fmt.Errorf("全天窗口时间段无效")
 			}
 			row.Segments = append(row.Segments, availabilitySegment{seg[0], seg[1], seg[2]})
 			previous = seg[1]
 		}
-		u.daily.Series[key] = row
+		result.Series[key] = row
 	}
-	u.daily.Truncated, u.dailyBytes = disk.Truncated, info.Size()
-	return nil
+	return result, info.Size(), nil
 }
 
 func (u *Utilization) advanceAvailability(p utilizationPending, start, end time.Time) {
@@ -119,7 +137,35 @@ func (u *Utilization) advanceAvailability(p utilizationPending, start, end time.
 		return
 	}
 	u.resetAvailabilityDay()
-	midnight := u.availabilityToday()
+	if u.dailyBlocked {
+		return
+	}
+	// Split even a bounded observation crossing Beijing midnight into each day.
+	for at := start; at.Before(end); {
+		local := at.In(chinaTime)
+		day := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, chinaTime)
+		next := minTime(end, day.AddDate(0, 0, 1))
+		date := day.Format("2006-01-02")
+		if date == u.daily.Date {
+			u.advanceAvailabilityDay(p, at, next, day)
+		} else if !day.Before(u.availabilityToday().AddDate(0, 0, -availabilityPastDays)) && day.Before(u.availabilityToday()) {
+			saved := u.daily
+			disk, ok := u.availabilityHistory[date]
+			if !ok {
+				disk = availabilityDisk{Version: 1, Date: date, Series: map[string]*availabilitySeries{}, Inventory: append([]availabilityMember(nil), u.availabilityInventory...), InventoryKnown: u.availabilityInventoryKnown}
+			}
+			if u.availabilityHistoryErrors[date] == "" {
+				u.daily = disk
+				u.advanceAvailabilityDay(p, at, next, day)
+				u.availabilityHistory[date] = u.daily
+				u.availabilityDirty[date] = true
+				u.daily = saved
+			}
+		}
+		at = next
+	}
+}
+func (u *Utilization) advanceAvailabilityDay(p utilizationPending, start, end, midnight time.Time) {
 	a, b := max(start.UnixMilli()-midnight.UnixMilli(), 0), min(end.UnixMilli()-midnight.UnixMilli(), availabilityDayMS)
 	if b <= a {
 		return
@@ -184,6 +230,12 @@ func (u *Utilization) flushAvailabilityLocked() error {
 		return fmt.Errorf("%s", u.dailyError)
 	}
 	u.resetAvailabilityDay()
+	if err := u.flushAvailabilityHistory(); err != nil {
+		return err
+	}
+	return u.saveAvailabilityDay(u.availabilityPath())
+}
+func (u *Utilization) saveAvailabilityDay(path string) error {
 	for {
 		raw, err := json.Marshal(u.daily)
 		if err != nil || len(raw) > availabilityRawLimit {
@@ -198,7 +250,7 @@ func (u *Utilization) flushAvailabilityLocked() error {
 			return err
 		}
 		if packed.Len() <= availabilityLimit {
-			if err = writeAtomic(u.availabilityPath(), packed.Bytes()); err != nil {
+			if err = writeAtomic(path, packed.Bytes()); err != nil {
 				return err
 			}
 			u.dailyBytes = int64(packed.Len())
@@ -239,6 +291,12 @@ type AvailabilityMachine struct {
 	LongestIdleSeconds float64          `json:"longestIdleSeconds"`
 }
 type AvailabilityReport struct {
+	Date              string                        `json:"date"`
+	Today             string                        `json:"today"`
+	Dates             []AvailabilityDate            `json:"dates"`
+	Groups            []string                      `json:"groups"`
+	HistoryAvailable  bool                          `json:"historyAvailable"`
+	CapacityPercent   map[string]*float64           `json:"capacityPercent"`
 	Nodes             int                           `json:"nodes"`
 	CountPolicy       string                        `json:"countPolicy"`
 	Pools             []AvailabilityPool            `json:"pools"`
@@ -369,15 +427,20 @@ func availabilityTheoreticalCounts(periods [][2]int64, slots int) IdleWindowCoun
 func (u *Utilization) AvailabilityReport(config Config, group, scope string, nodeOptions ...int) AvailabilityReport {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	now, after := u.now(), u.availabilityToday()
+	nodes := 1
+	if len(nodeOptions) > 0 {
+		nodes = nodeOptions[0]
+	}
+	return u.availabilityReportAt(config, group, scope, nodes, u.now(), u.availabilityToday())
+}
+func (u *Utilization) availabilityReportAt(config Config, group, scope string, nodes int, now, after time.Time) AvailabilityReport {
 	elapsed := max(now.UnixMilli()-after.UnixMilli(), 0)
 	periods, expected := availabilityPeriods(elapsed, scope)
-	r := AvailabilityReport{Schema: "simplehtmlwatch.daily-idle-windows.v1", TimeZone: "Asia/Shanghai", After: after, Before: now, GeneratedAt: now, HistoryBytes: u.dailyBytes, HistoryLimitBytes: availabilityLimit, HistoryTruncated: u.daily.Date == after.Format("2006-01-02") && u.daily.Truncated, StorageError: u.dailyError, Machines: []AvailabilityMachine{}}
+	r := AvailabilityReport{Schema: "simplehtmlwatch.daily-idle-windows.v1", TimeZone: "Asia/Shanghai", After: after, Before: now, GeneratedAt: u.now(), HistoryBytes: u.dailyBytes, HistoryLimitBytes: availabilityLimit, HistoryTruncated: u.daily.Date == after.Format("2006-01-02") && u.daily.Truncated, StorageError: u.dailyError, Machines: []AvailabilityMachine{}}
 	r.Scope, r.ExpectedSeconds = scope, float64(expected)/1000
-	r.Nodes = 1
-	if len(nodeOptions) > 0 {
-		r.Nodes = nodeOptions[0]
-	}
+	r.Nodes = nodes
+	r.Date, r.Today, r.HistoryAvailable = after.Format("2006-01-02"), u.availabilityToday().Format("2006-01-02"), true
+	r.Groups = availabilityGroups(config)
 	r.CountPolicy = "independent-single-node"
 	r.Pools = []AvailabilityPool{}
 	r.Plans = map[string][]AvailabilityPlan{}
@@ -490,6 +553,7 @@ func (u *Utilization) AvailabilityReport(config Config, group, scope string, nod
 		}
 	}
 	r.TheoreticalCounts = availabilityTheoreticalCounts(periods, slots)
+	r.CapacityPercent = availabilityPercents(r.Counts, r.TheoreticalCounts)
 	return r
 }
 
@@ -499,8 +563,8 @@ func (s *Server) availabilityAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for key, values := range r.URL.Query() {
-		if key != "group" && key != "scope" && key != "nodes" || len(values) != 1 {
-			fail(w, 400, "窗口统计仅接受单个 group、scope 和 nodes 参数")
+		if key != "group" && key != "scope" && key != "nodes" && key != "date" || len(values) != 1 {
+			fail(w, 400, "窗口统计仅接受单个 group、scope、nodes 和 date 参数")
 			return
 		}
 	}
@@ -521,5 +585,10 @@ func (s *Server) availabilityAPI(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err.Error())
 		return
 	}
-	jsonResponse(w, 200, s.monitor.utilization.AvailabilityReport(s.store.Public(), r.URL.Query().Get("group"), scope, nodes))
+	report, err := s.monitor.utilization.AvailabilityForDate(s.store.Public(), r.URL.Query().Get("group"), scope, r.URL.Query().Get("date"), nodes)
+	if err != nil {
+		fail(w, 400, err.Error())
+		return
+	}
+	jsonResponse(w, 200, report)
 }

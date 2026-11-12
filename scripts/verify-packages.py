@@ -11,12 +11,12 @@ version = sys.argv[1]
 dist = Path(__file__).resolve().parents[1] / "dist"
 capabilities = ("accelerator-utilization-v1", "accelerator-occupancy-v1", "queue-residue-cleanup-v1", "forwarded-resource-identity-v1", "bounded-storage-v1", "task-result-stream-v1", "ssh-terminal-v1", "completed-task-retention-v1", "idle-machine-ranking-v1", "upgrade-backup-archive-v1")
 capabilities += ("daily-idle-windows-v1",)
-capabilities += ("simultaneous-idle-windows-v1",)
+capabilities += ("simultaneous-idle-windows-v1", "weekly-idle-windows-v1")
 forbidden = {"config.enc", "vault.key", "service.json", "app.lock", "known_hosts", "__pycache__", ".DS_Store", "storage-budget.json", "job.json", "completed.json.gz", "reservations.json", "continuations.json", "result.tar.gz", ".cleanup", "recent.json.gz", "idle-ranking.json"}
 checksums = {name: sha for sha, name in (line.split("  ", 1) for line in (dist / "SHA256SUMS").read_text().splitlines())}
 report = {"version": version, "capabilities": list(capabilities), "packages": []}
 forbidden.update({"backup-archive.key", "backup-policy.json", "backup-status.json", "rollback", "backup-maintenance", "known_hosts.json"})
-forbidden.add("daily-windows.json.gz")
+forbidden.update({"daily-windows.json.gz", "window-history"})
 for target in ("windows_amd64", "windows_arm64", "darwin_amd64", "darwin_arm64", "linux_amd64", "linux_arm64"):
     root = f"simpleHtmlWatch_{version}_{target}"
     path = dist / (root + (".zip" if target.startswith("windows") else ".tar.gz"))
@@ -57,6 +57,7 @@ for target in ("windows_amd64", "windows_arm64", "darwin_amd64", "darwin_arm64",
     assert "整机占用时长比例".encode() in binary and "诊断与清理日志".encode() in binary, "界面未集成"
     assert b"workingHoursSummary" in binary and b"nonWorkingHoursSummary" in binary, "程序缺少分时段汇总字段"
     assert b"minutes5" in binary and b"availability-png" in binary and b"availability-scope" in binary and b"watchReady" in binary, "程序缺少五档窗口、汇总图或首页默认入口"
+    assert b"availability-date" in binary and b"capacityPercent" in binary and b"theoreticalCounts" in binary, "程序缺少日期切换或窗口比例"
     assert b"availability-charts.js" in binary and b"availability-nodes" in binary and b"availability-duration" in binary and b"stroke-dasharray" in binary, "程序缺少全屏五图圆环或同组多机入口"
     assert "非工作时段汇总".encode() in binary and b"09:00" in binary and b"19:00" in binary, "界面缺少工作及非工作时段汇总"
     assert b"workingHoursSummary" in content[root + "/docs/utilization.md"] and b"nonWorkingHoursSummary" in content[root + "/skills/simplehtmlwatch-netdata/SKILL.md"], "分时段汇总说明未同步"

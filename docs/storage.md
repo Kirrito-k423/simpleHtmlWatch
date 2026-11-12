@@ -83,3 +83,6 @@ v0.8.0 新增 `occupancy/recent.json.gz`，压缩文件上限64 KiB，仅保留�
 ## 当天连续空闲段
 
 v0.8.3 增加 occupancy/daily-windows.json.gz，只保存当天合并状态段，压缩上限256 KiB，原子替换另需同等临时空间；内存最多256来源与8192段，超限裁剪最早段并公开 historyTruncated，缺失部分为未知。正常每分钟覆盖、跨自然日重置统计，不删除其他历史。此新增上限需要在实际目录持续观测，不能重置既有30天验收基线或用估算替代实测。格式、损坏保留及统计边界见 [窗口说明](availability.md)。
+
+
+v0.8.6 将精确窗口扩展为今天加过去7天：occupancy/daily-windows.json.gz 与 occupancy/window-history/YYYY-MM-DD.json.gz 每份压缩最多256 KiB，正常最多8份（2 MiB），原子写临时空间最多256 KiB；每日期最多256来源与8192段。清理仅作用于该专属窗口历史目录超过7天的日期文件，不删除利用率小时历史、结果包，也不重置存储验收基线。历史清单仅含节点身份／地址／分组，不含凭据；详情见 [窗口说明](availability.md)。

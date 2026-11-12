@@ -2,7 +2,7 @@ const {test,expect}=require('@playwright/test');
 const {readFile}=require('node:fs/promises');
 
 // Synthetic 64-node dashboard; fake addresses only, never a hardware claim.
-function fixture(scope='work',nodes=1,group=''){
+function fixture(scope='work',nodes=1,group='',date='2026-11-11'){
   const n={work:2,off:1,all:3}[scope],expected={work:3,off:10,all:13}[scope]*3600,idle=n*1800+600,busy=1800;
   const counts=Object.fromEntries([120,60,30,15,5].map(minutes=>['minutes'+minutes,Math.floor(idle/(minutes*60))]));
   const machines=Array.from({length:64},(_,i)=>({resourceKey:'physical:node-'+String(i).padStart(2,'0'),machineIds:['machine-'+String(i).padStart(2,'0')],name:i===0?'机器 <甲>':'A5 B'+String(Math.floor(i/8)+1).padStart(2,'0')+'-'+(i%8+1),group:'A5 B'+String(Math.floor(i/8)+1).padStart(2,'0'),pool:'A5 B'+String(Math.floor(i/8)+1).padStart(2,'0'),counts:{...counts},idleSeconds:idle,busySeconds:busy,unknownSeconds:expected-idle-busy,fragmentSeconds:600,longestIdleSeconds:idle,coveragePercent:(idle+busy)/expected*100})).filter(r=>!group||r.group===group);
@@ -14,7 +14,7 @@ function fixture(scope='work',nodes=1,group=''){
     const count=counts['minutes'+minutes],resources=Array.from({length:nodes},(_,i)=>'physical:node-'+(48+i));
     plans['minutes'+minutes]=count?[{pool:'A5 B07',after:'2026-11-11T01:00:00Z',before:new Date(Date.parse('2026-11-11T01:00:00Z')+count*minutes*60000).toISOString(),minutes,count,resources}]:[];
   }
-  return {schema:'simplehtmlwatch.daily-idle-windows.v1',scope,nodes,countPolicy:nodes>1?'nonoverlapping-feasible-packing-v1':'independent-single-node',plans,omittedPlans:{},expectedSeconds:expected,timeZone:'Asia/Shanghai',after:'2026-11-10T16:00:00Z',before:'2026-11-11T05:00:00Z',generatedAt:'2026-11-11T05:00:00Z',theoreticalCounts,counts:total,machineCount:machines.length,configuredEntries:machines.length,idleSeconds:idle*machines.length,busySeconds:busy*machines.length,unknownSeconds:(expected-idle-busy)*machines.length,fragmentSeconds:600*machines.length,coveragePercent:(idle+busy)/expected*100,historyBytes:4096,historyLimitBytes:262144,historyTruncated:false,machines};
+  return {date,today:'2026-11-11',historyAvailable:true,dates:Array.from({length:8},(_,i)=>({date:'2026-11-'+String(11-i).padStart(2,'0'),available:i<2})),groups:Array.from({length:8},(_,i)=>'A5 B'+String(i+1).padStart(2,'0')),schema:'simplehtmlwatch.daily-idle-windows.v1',scope,nodes,countPolicy:nodes>1?'nonoverlapping-feasible-packing-v1':'independent-single-node',plans,omittedPlans:{},expectedSeconds:expected,timeZone:'Asia/Shanghai',after:'2026-11-10T16:00:00Z',before:'2026-11-11T05:00:00Z',generatedAt:'2026-11-11T05:00:00Z',theoreticalCounts,counts:total,machineCount:machines.length,configuredEntries:machines.length,idleSeconds:idle*machines.length,busySeconds:busy*machines.length,unknownSeconds:(expected-idle-busy)*machines.length,fragmentSeconds:600*machines.length,coveragePercent:(idle+busy)/expected*100,historyBytes:4096,historyLimitBytes:262144,historyTruncated:false,machines};
 }
 
 test('全屏五图方格：64节点同屏、五档、同组多机、明细和导出',async({page},testInfo)=>{
@@ -28,7 +28,8 @@ test('全屏五图方格：64节点同屏、五档、同组多机、明细和导
   });
   await page.route('**/api/availability?*',async route=>{
     const q=new URL(route.request().url()).searchParams;queries.push(q);
-    return route.fulfill(failed?{status:503,json:{error:'窗口历史暂不可读'}}:{json:fixture(q.get('scope'),Number(q.get('nodes')||1),q.get('group'))});
+    if(q.get('date')==='2026-11-09'){const empty=fixture(q.get('scope'),Number(q.get('nodes')||1),'','2026-11-09');empty.historyAvailable=false;empty.machines=[];empty.machineCount=0;empty.counts={};empty.theoreticalCounts={};return route.fulfill({json:empty});}
+    return route.fulfill(failed?{status:503,json:{error:'窗口历史暂不可读'}}:{json:fixture(q.get('scope'),Number(q.get('nodes')||1),q.get('group'),q.get('date')||'2026-11-11')});
   });
   await page.goto('/');
   const dialog=page.locator('#availability-dialog');await expect(dialog).toBeVisible();
@@ -36,6 +37,8 @@ test('全屏五图方格：64节点同屏、五档、同组多机、明细和导
   await expect(page.locator('#availability-scope')).toHaveValue('work');await expect(page.locator('#availability-nodes')).toHaveValue('1');
   await expect(page.locator('.availability-duration')).toHaveCount(5);await expect(page.locator('.availability-node')).toHaveCount(320);
   for(const minutes of [120,60,30,15,5])await expect(page.locator('[data-duration="'+minutes+'"]')).toContainText('独立空闲窗 '+fixture().counts['minutes'+minutes]+' / '+fixture().theoreticalCounts['minutes'+minutes]+' 个');
+  await expect(page.locator('[data-duration="30"]')).toContainText('33.3%');
+  await expect(page.locator('[data-duration="120"]')).toContainText('0.0%');
   const box=await dialog.boundingBox();expect(box).toMatchObject({x:0,y:0,width:1800,height:1226});
   const layout=await page.locator('#availability-chart').evaluate(el=>{
     const rects=[...el.querySelectorAll('.availability-node > rect')].map(r=>r.getBoundingClientRect());
@@ -61,7 +64,10 @@ test('全屏五图方格：64节点同屏、五档、同组多机、明细和导
   await page.locator('#availability-group').selectOption('A5 B07');await expect(page.locator('.availability-node')).toHaveCount(40);
   await page.locator('#availability-group').selectOption('');await expect(page.locator('.availability-node')).toHaveCount(320);
   for(const scope of ['off','all']){await page.locator('#availability-scope').selectOption(scope);await expect(page.locator('[data-duration="30"]')).toContainText('可排布 '+fixture(scope,2).counts.minutes30+' / '+fixture(scope,2).theoreticalCounts.minutes30+' 次');expect(queries.at(-1).get('scope')).toBe(scope);}
-  const csvDownload=page.waitForEvent('download');await page.locator('#availability-csv').click();const csv=await readFile(await(await csvDownload).path(),'utf8');expect(csv).toContain('节点参与次数');expect(csv).toContain('独立组网实验窗');expect(csv).toContain('5分钟');expect(csv).toContain('全空闲理论上限');
+  await page.locator('#availability-date').selectOption('2026-11-10');await expect(page.locator('#availability-chart')).toContainText('2026-11-10 独立实验窗口');expect(queries.at(-1).get('date')).toBe('2026-11-10');
+  const csvDownload=page.waitForEvent('download');await page.locator('#availability-csv').click();const csv=await readFile(await(await csvDownload).path(),'utf8');expect(csv).toContain('节点参与次数');expect(csv).toContain('独立组网实验窗');expect(csv).toContain('5分钟');expect(csv).toContain('全空闲理论上限');expect(csv).toContain('实际数占理论上限(%)');
+  await page.locator('#availability-date').selectOption('2026-11-09');await expect(page.locator('#availability-message')).toContainText('无可用的精确窗口历史');await expect(page.locator('.availability-node')).toHaveCount(0);await expect(page.locator('#availability-chart')).toContainText('无历史数据');await expect(page.locator('#availability-png')).toBeDisabled();
+  await page.locator('#availability-date').selectOption('');await expect(page.locator('.availability-node')).toHaveCount(320);
   await page.setViewportSize({width:720,height:980});expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(720);await expect(page.locator('.availability-node')).toHaveCount(320);
   failed=true;await page.locator('#availability-refresh').click();await expect(page.locator('#availability-message')).toHaveText('窗口历史暂不可读');await expect(page.locator('#availability-chart')).toBeEmpty();await expect(page.locator('#availability-png')).toBeDisabled();
   expect(errors).toEqual([]);

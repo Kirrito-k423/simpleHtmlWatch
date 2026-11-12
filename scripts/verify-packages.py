@@ -16,7 +16,7 @@ forbidden = {"config.enc", "vault.key", "service.json", "app.lock", "known_hosts
 checksums = {name: sha for sha, name in (line.split("  ", 1) for line in (dist / "SHA256SUMS").read_text().splitlines())}
 report = {"version": version, "capabilities": list(capabilities), "packages": []}
 forbidden.update({"backup-archive.key", "backup-policy.json", "backup-status.json", "rollback", "backup-maintenance", "known_hosts.json"})
-forbidden.add("daily-windows.json.gz", "window-history")
+forbidden.update({"daily-windows.json.gz", "window-history"})
 for target in ("windows_amd64", "windows_arm64", "darwin_amd64", "darwin_arm64", "linux_amd64", "linux_arm64"):
     root = f"simpleHtmlWatch_{version}_{target}"
     path = dist / (root + (".zip" if target.startswith("windows") else ".tar.gz"))

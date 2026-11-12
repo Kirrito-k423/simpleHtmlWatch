@@ -42,6 +42,7 @@ jobs:
       - run: node --check web/metrics.js
       - run: node --check web/utilization.js
       - run: node --check web/availability.js
+      - run: node --check web/availability-charts.js
       - run: node --check web/idle-ranking.js
       - run: node --check web/ssh-terminal.js
       - run: node --test tests/*.test.cjs

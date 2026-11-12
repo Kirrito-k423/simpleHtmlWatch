@@ -103,3 +103,9 @@ python3 "$SKILL_DIR/scripts/metricsctl.py" --instance <实例名> idle-ranking -
 `counts.minutes120/60/30/15/5` 为五档各自独立、同档不重叠的历史空闲窗个数，不能把不同档相加或把零散空闲拼成长窗。跨被排除时段、断连、重启、未知状态会切断连续性。全部 NPU 无进程且算力为零才计空闲，沿用有时限前值估计，不能检测所有采样间短进程。读取各自 coveragePercent、expectedSeconds、unknownSeconds、fragmentSeconds、historyTruncated、storageError；未知不等于占用，零个观测窗口不证明全天没有机会。
 
 客户端 complete 要求全部覆盖、无保存错误及裁剪；退出码3时保留有效数据但必须说明不完整。新记录从升级后积累，不用旧小时／五分钟均值还原连续段。全体按配置物理资源ID去重，未标识跳板入口可能仍重复。历史机会不代表未来可独占，提交实验前仍需实时检查及预约。详见发布包 docs/availability.md。
+
+## 同一 B 组的多机窗口
+
+v0.8.4 的 availability 增加 --nodes 1|2|4|8，默认单机；多机须额外核验 simultaneous-idle-windows-v1，缺失不得把单机结果冒充多机，不能触发自动升级。示例：metricsctl.py --instance <实例名> availability --scope work --group "A5 B07" --nodes 4。
+
+只有固定同一批物理节点在同一明确 B 组内全程同时空闲才形成多机窗口。nodes>1 的顶层 counts 是独立实验数，机器 counts 是参与次数；同档不重复抢占节点。8节点同时空闲半小时，双机4次、四机2次、8机1次。countPolicy=nonoverlapping-feasible-packing-v1 表示确定性的保守可行排布，不能宣称全局最大值或累计重叠候选。核对 pools、plans、omittedPlans、multiReason；明细省略不减少计数，身份或历史分组不明时不能宣称完整。窗口仍是历史机会，领用前实时检查并预约。

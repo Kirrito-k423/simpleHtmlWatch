@@ -119,13 +119,21 @@ def run(args, client):
         return {"machines": machines(client)}, 0
     if args.action == "availability":
         params = {"scope": args.scope}
+        nodes = getattr(args, "nodes", 1)
+        if nodes not in (1, 2, 4, 8):
+            raise ValueError("nodes 须为 1、2、4 或 8")
+        params["nodes"] = nodes
         if args.group:
             params["group"] = args.group
         query = urllib.parse.urlencode(params)
         output = client.api("/api/availability" + ("?" + query if query else ""))
         if output.get("schema") != "simplehtmlwatch.daily-idle-windows.v1" or not isinstance(output.get("machines"), list):
             raise ValueError("全天窗口汇总响应无效")
+        if output.get("nodes", 1) != nodes:
+            raise ValueError("服务未返回请求的组网规模；不能用单机计数冒充多机窗口")
         output["complete"] = bool(output["machines"]) and not output.get("storageError") and not output.get("historyTruncated") and output.get("coveragePercent", 0) >= 100
+        if nodes > 1 and any(row.get("multiReason") for row in output["machines"]):
+            output["complete"] = False
         return output, 0 if output["complete"] else 3
     if args.action == "idle-ranking":
         output = client.api(idle_ranking_path(args))
@@ -196,6 +204,7 @@ def main(argv=None):
     availability = sub.add_parser("availability", help="查询今日独立空闲窗口及半小时容量汇总")
     availability.add_argument("--group", help="限制机器组，按物理标识去重")
     availability.add_argument("--scope", choices=("work", "off", "all"), default="work", help="工作时段、非工作时段或全天，默认工作时段")
+    availability.add_argument("--nodes", type=int, choices=(1, 2, 4, 8), default=1, help="同一 B 组内固定同时空闲节点数，默认单机")
     u = sub.add_parser("utilization", help="查询机器级 NPU 小时汇总，不需要启用 Netdata")
     u.add_argument("--period", choices=("today", "yesterday", "week"), help="今天、昨天或近 7 个完整自然日，默认昨天")
     u.add_argument("--date", help="起始北京时间日期 YYYY-MM-DD")

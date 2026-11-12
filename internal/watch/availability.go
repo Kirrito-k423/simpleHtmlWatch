@@ -223,6 +223,9 @@ type IdleWindowCounts struct {
 	Minutes120 int `json:"minutes120"`
 }
 type AvailabilityMachine struct {
+	Pool               string `json:"pool"`
+	MultiReason        string `json:"multiReason,omitempty"`
+	idleSpans          [][2]int64
 	ResourceKey        string           `json:"resourceKey"`
 	MachineIDs         []string         `json:"machineIds"`
 	Name               string           `json:"name"`
@@ -236,26 +239,31 @@ type AvailabilityMachine struct {
 	LongestIdleSeconds float64          `json:"longestIdleSeconds"`
 }
 type AvailabilityReport struct {
-	Scope             string                `json:"scope"`
-	ExpectedSeconds   float64               `json:"expectedSeconds"`
-	Schema            string                `json:"schema"`
-	TimeZone          string                `json:"timeZone"`
-	After             time.Time             `json:"after"`
-	Before            time.Time             `json:"before"`
-	GeneratedAt       time.Time             `json:"generatedAt"`
-	Counts            IdleWindowCounts      `json:"counts"`
-	MachineCount      int                   `json:"machineCount"`
-	ConfiguredEntries int                   `json:"configuredEntries"`
-	IdleSeconds       float64               `json:"idleSeconds"`
-	BusySeconds       float64               `json:"busySeconds"`
-	UnknownSeconds    float64               `json:"unknownSeconds"`
-	FragmentSeconds   float64               `json:"fragmentSeconds"`
-	CoveragePercent   float64               `json:"coveragePercent"`
-	HistoryBytes      int64                 `json:"historyBytes"`
-	HistoryLimitBytes int                   `json:"historyLimitBytes"`
-	HistoryTruncated  bool                  `json:"historyTruncated"`
-	StorageError      string                `json:"storageError,omitempty"`
-	Machines          []AvailabilityMachine `json:"machines"`
+	Nodes             int                           `json:"nodes"`
+	CountPolicy       string                        `json:"countPolicy"`
+	Pools             []AvailabilityPool            `json:"pools"`
+	Plans             map[string][]AvailabilityPlan `json:"plans"`
+	OmittedPlans      map[string]int                `json:"omittedPlans"`
+	Scope             string                        `json:"scope"`
+	ExpectedSeconds   float64                       `json:"expectedSeconds"`
+	Schema            string                        `json:"schema"`
+	TimeZone          string                        `json:"timeZone"`
+	After             time.Time                     `json:"after"`
+	Before            time.Time                     `json:"before"`
+	GeneratedAt       time.Time                     `json:"generatedAt"`
+	Counts            IdleWindowCounts              `json:"counts"`
+	MachineCount      int                           `json:"machineCount"`
+	ConfiguredEntries int                           `json:"configuredEntries"`
+	IdleSeconds       float64                       `json:"idleSeconds"`
+	BusySeconds       float64                       `json:"busySeconds"`
+	UnknownSeconds    float64                       `json:"unknownSeconds"`
+	FragmentSeconds   float64                       `json:"fragmentSeconds"`
+	CoveragePercent   float64                       `json:"coveragePercent"`
+	HistoryBytes      int64                         `json:"historyBytes"`
+	HistoryLimitBytes int                           `json:"historyLimitBytes"`
+	HistoryTruncated  bool                          `json:"historyTruncated"`
+	StorageError      string                        `json:"storageError,omitempty"`
+	Machines          []AvailabilityMachine         `json:"machines"`
 }
 type availabilityEvent struct {
 	at         int64
@@ -282,6 +290,9 @@ func summarizeAvailability(events []availabilityEvent, elapsed, expected int64) 
 	var free, busy int
 	var previous, run, idleMS, busyMS, longest int64
 	finish := func() {
+		if run > 0 {
+			row.idleSpans = append(row.idleSpans, [2]int64{previous - run, previous})
+		}
 		row.Counts.Minutes5 += int(run / 300000)
 		row.Counts.Minutes15 += int(run / 900000)
 		row.Counts.Minutes30 += int(run / 1800000)
@@ -342,7 +353,7 @@ func availabilityPeriods(elapsed int64, scope string) ([][2]int64, int64) {
 	return periods, expected
 }
 
-func (u *Utilization) AvailabilityReport(config Config, group, scope string) AvailabilityReport {
+func (u *Utilization) AvailabilityReport(config Config, group, scope string, nodeOptions ...int) AvailabilityReport {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	now, after := u.now(), u.availabilityToday()
@@ -350,6 +361,23 @@ func (u *Utilization) AvailabilityReport(config Config, group, scope string) Ava
 	periods, expected := availabilityPeriods(elapsed, scope)
 	r := AvailabilityReport{Schema: "simplehtmlwatch.daily-idle-windows.v1", TimeZone: "Asia/Shanghai", After: after, Before: now, GeneratedAt: now, HistoryBytes: u.dailyBytes, HistoryLimitBytes: availabilityLimit, HistoryTruncated: u.daily.Date == after.Format("2006-01-02") && u.daily.Truncated, StorageError: u.dailyError, Machines: []AvailabilityMachine{}}
 	r.Scope, r.ExpectedSeconds = scope, float64(expected)/1000
+	r.Nodes = 1
+	if len(nodeOptions) > 0 {
+		r.Nodes = nodeOptions[0]
+	}
+	r.CountPolicy = "independent-single-node"
+	r.Pools = []AvailabilityPool{}
+	r.Plans = map[string][]AvailabilityPlan{}
+	r.OmittedPlans = map[string]int{}
+	poolByResource := map[string]string{}
+	for _, m := range config.Machines {
+		key, pool := availabilityResource(m), availabilityPoolName(m.Group)
+		if previous, ok := poolByResource[key]; ok && previous != pool {
+			poolByResource[key] = ""
+		} else if !ok {
+			poolByResource[key] = pool
+		}
+	}
 	groups := map[string][]Machine{}
 	for _, m := range config.Machines {
 		if group != "" && m.Group != group {
@@ -362,6 +390,7 @@ func (u *Utilization) AvailabilityReport(config Config, group, scope string) Ava
 	for resource, aliases := range groups {
 		sort.Slice(aliases, func(i, j int) bool { return aliases[i].ID < aliases[j].ID })
 		events := []availabilityEvent{}
+		historicalPoolChanged := false
 		for _, m := range aliases {
 			if u.daily.Date != after.Format("2006-01-02") {
 				continue
@@ -379,6 +408,9 @@ func (u *Utilization) AvailabilityReport(config Config, group, scope string) Ava
 			for _, s := range []*availabilitySeries{selected} {
 				if s == nil {
 					continue
+				}
+				if availabilityPoolName(s.Machine.Group) != poolByResource[resource] {
+					historicalPoolChanged = true
 				}
 				for _, seg := range s.Segments {
 					for _, period := range periods {
@@ -399,6 +431,10 @@ func (u *Utilization) AvailabilityReport(config Config, group, scope string) Ava
 		}
 		row := summarizeAvailability(events, elapsed, expected)
 		row.ResourceKey, row.Name, row.Group = resource, aliases[0].Name, aliases[0].Group
+		row.Pool = poolByResource[resource]
+		if r.Nodes > 1 && historicalPoolChanged {
+			row.MultiReason = "historical_pool_changed"
+		}
 		row.MachineIDs = []string{}
 		for _, m := range aliases {
 			row.MachineIDs = append(row.MachineIDs, m.ID)
@@ -428,6 +464,9 @@ func (u *Utilization) AvailabilityReport(config Config, group, scope string) Ava
 	if expected > 0 && r.MachineCount > 0 {
 		r.CoveragePercent = (r.IdleSeconds + r.BusySeconds) * 100 / (float64(expected) / 1000 * float64(r.MachineCount))
 	}
+	if r.Nodes != 1 {
+		planAvailability(&r)
+	}
 	return r
 }
 
@@ -437,8 +476,8 @@ func (s *Server) availabilityAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for key, values := range r.URL.Query() {
-		if key != "group" && key != "scope" || len(values) != 1 {
-			fail(w, 400, "窗口统计仅接受单个 group 和 scope 参数")
+		if key != "group" && key != "scope" && key != "nodes" || len(values) != 1 {
+			fail(w, 400, "窗口统计仅接受单个 group、scope 和 nodes 参数")
 			return
 		}
 	}
@@ -454,5 +493,10 @@ func (s *Server) availabilityAPI(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "scope 须为 work、off 或 all")
 		return
 	}
-	jsonResponse(w, 200, s.monitor.utilization.AvailabilityReport(s.store.Public(), r.URL.Query().Get("group"), scope))
+	nodes, err := availabilityNodes(r.URL.Query().Get("nodes"))
+	if err != nil {
+		fail(w, 400, err.Error())
+		return
+	}
+	jsonResponse(w, 200, s.monitor.utilization.AvailabilityReport(s.store.Public(), r.URL.Query().Get("group"), scope, nodes))
 }

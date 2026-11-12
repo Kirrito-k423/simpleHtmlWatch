@@ -73,6 +73,7 @@ func (m *Monitor) Replace(c Config) {
 	m.wg.Wait()
 	if m.utilization != nil {
 		m.utilization.Reset()
+		m.utilization.SetAvailabilityInventory(c)
 	}
 	m.trust.ResetCountdowns()
 	ctx, cancel := context.WithCancel(context.Background())

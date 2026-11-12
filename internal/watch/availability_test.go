@@ -254,7 +254,7 @@ func TestAvailabilityCorruptHistoryPreservedAndReadOnlyAPI(t *testing.T) {
 	for _, tc := range []struct {
 		method, path string
 		code         int
-	}{{"GET", "/api/availability", 200}, {"GET", "/api/availability?group=missing", 200}, {"GET", "/api/availability?date=2026-11-10", 400}, {"GET", "/api/availability?group=x&group=y", 400}, {"POST", "/api/availability", 405}} {
+	}{{"GET", "/api/availability", 200}, {"GET", "/api/availability?group=missing", 200}, {"GET", "/api/availability?date=2026-11-12", 400}, {"GET", "/api/availability?group=x&group=y", 400}, {"POST", "/api/availability", 405}} {
 		req := httptest.NewRequest(tc.method, "http://127.0.0.1:12345"+tc.path, nil)
 		req.Header.Set("X-Watch-Token", app.token)
 		w := httptest.NewRecorder()

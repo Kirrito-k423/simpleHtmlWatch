@@ -125,13 +125,22 @@ def run(args, client):
         params["nodes"] = nodes
         if args.group:
             params["group"] = args.group
+        date = getattr(args, "date", None)
+        if date:
+            try:
+                if datetime.date.fromisoformat(date).isoformat() != date: raise ValueError()
+            except ValueError as exc:
+                raise ValueError("日期格式须为 YYYY-MM-DD") from exc
+            params["date"] = date
         query = urllib.parse.urlencode(params)
         output = client.api("/api/availability" + ("?" + query if query else ""))
         if output.get("schema") != "simplehtmlwatch.daily-idle-windows.v1" or not isinstance(output.get("machines"), list):
             raise ValueError("全天窗口汇总响应无效")
         if output.get("nodes", 1) != nodes:
             raise ValueError("服务未返回请求的组网规模；不能用单机计数冒充多机窗口")
-        output["complete"] = bool(output["machines"]) and not output.get("storageError") and not output.get("historyTruncated") and output.get("coveragePercent", 0) >= 100
+        if date and output.get("date") != date:
+            raise ValueError("服务未返回请求的历史日期；不能用今天冒充历史")
+        output["complete"] = output.get("historyAvailable", True) and bool(output["machines"]) and not output.get("storageError") and not output.get("historyTruncated") and output.get("coveragePercent", 0) >= 100
         if nodes > 1 and any(row.get("multiReason") for row in output["machines"]):
             output["complete"] = False
         return output, 0 if output["complete"] else 3
@@ -201,7 +210,8 @@ def main(argv=None):
     selector.add_argument("--task", help="任务 ID")
     s = sub.add_parser("summary", help="串行查询目标组所有已启用机器，报告跳过及失败")
     s.add_argument("--group", help="限制机器组")
-    availability = sub.add_parser("availability", help="查询今日独立空闲窗口及半小时容量汇总")
+    availability = sub.add_parser("availability", help="查询今天与过去7天的五档独立空闲窗口")
+    availability.add_argument("--date", help="北京时间日期 YYYY-MM-DD，默认今天；可选过去7天")
     availability.add_argument("--group", help="限制机器组，按物理标识去重")
     availability.add_argument("--scope", choices=("work", "off", "all"), default="work", help="工作时段、非工作时段或全天，默认工作时段")
     availability.add_argument("--nodes", type=int, choices=(1, 2, 4, 8), default=1, help="同一 B 组内固定同时空闲节点数，默认单机")

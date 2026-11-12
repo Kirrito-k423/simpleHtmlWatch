@@ -84,6 +84,8 @@ class Client:
         self.expect_version = args.expect_version
         self.required = set(args.require_capability)
         if args.action == "availability":
+            if getattr(args, "date", None):
+                self.required.add("weekly-idle-windows-v1")
             self.required.add("daily-idle-windows-v1")
             if getattr(args, "nodes", 1) > 1:
                 self.required.add("simultaneous-idle-windows-v1")

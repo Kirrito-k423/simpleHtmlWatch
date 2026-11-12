@@ -88,24 +88,30 @@ type utilizationPending struct {
 	occupied       bool
 }
 type Utilization struct {
-	daily        availabilityDisk
-	dailyBytes   int64
-	dailyError   string
-	dailyBlocked bool
-	recent       map[string]*occupancySeries
-	recentBytes  int64
-	recentError  string
-	mu           sync.Mutex
-	dir          string
-	days         map[string]*utilizationDay
-	dirty        map[string]bool
-	pending      map[string]utilizationPending
-	bytes        int64
-	limit        int64
-	lastError    string
-	now          func() time.Time
-	stop         chan struct{}
-	wg           sync.WaitGroup
+	availabilityHistory        map[string]availabilityDisk
+	availabilityHistoryBytes   map[string]int64
+	availabilityHistoryErrors  map[string]string
+	availabilityDirty          map[string]bool
+	availabilityInventory      []availabilityMember
+	availabilityInventoryKnown bool
+	daily                      availabilityDisk
+	dailyBytes                 int64
+	dailyError                 string
+	dailyBlocked               bool
+	recent                     map[string]*occupancySeries
+	recentBytes                int64
+	recentError                string
+	mu                         sync.Mutex
+	dir                        string
+	days                       map[string]*utilizationDay
+	dirty                      map[string]bool
+	pending                    map[string]utilizationPending
+	bytes                      int64
+	limit                      int64
+	lastError                  string
+	now                        func() time.Time
+	stop                       chan struct{}
+	wg                         sync.WaitGroup
 }
 
 func NewUtilization(dir string) (*Utilization, error) {

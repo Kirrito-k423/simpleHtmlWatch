@@ -1,7 +1,7 @@
 (() => {
   const el=id=>document.querySelector('#availability-'+id),dialog=el('dialog'),detail=el('detail-dialog'),charts=AvailabilityCharts;
   const token=document.querySelector('meta[name="watch-token"]').content;
-  const {escape,stamp,durations,scopeNames}=charts;
+  const {escape,stamp,durations,scopeNames,percent}=charts;
   let snapshot=null,controller=null,generation=0,timer=null,frame=null,detailSelection=null;
   const reasonNames={pool_unconfirmed:'未确认唯一 B 组',historical_pool_changed:'当天历史记录与当前 B 组不符，不能借用旧组历史',physical_identity_unconfirmed:'未确认物理资源身份',pool_over_eight:'同组超过 8 个物理节点，需核对分组',not_enough_members:'可确认的组内节点不足'};
   function message(value,error=false){el('message').textContent=value;el('message').title=value;el('message').classList.toggle('error',error);}
@@ -14,9 +14,13 @@
   const observer=new ResizeObserver(queueDraw);observer.observe(el('chart'));
   function render(){
     const data=snapshot,multi=(data.nodes||1)>1;
-    el('meta').textContent=scopeNames[data.scope]+' · '+stamp(data.before)+' · '+data.machineCount+' 节点 / '+data.configuredEntries+' 入口 · 覆盖 '+Number(data.coveragePercent).toFixed(1)+'% · 所选时段已过 '+Number(data.expectedSeconds/3600).toFixed(2)+' 小时 · 图头分母：全空闲理论上限';
+    const selectedDate=el('date').value,selectedGroup=el('group').value;
+    if(data.dates){el('date').innerHTML=data.dates.map(d=>'<option value="'+(d.date===data.today?'':escape(d.date))+'">'+escape(d.date)+(d.date===data.today?' · 今天':d.error?' · 历史异常':!d.available?' · 无历史':'')+'</option>').join('');el('date').value=selectedDate;}
+    if(data.groups){el('group').innerHTML='<option value="">所有分组</option>'+data.groups.map(g=>'<option value="'+escape(g)+'">'+escape(g)+'</option>').join('');el('group').value=selectedGroup;}
+
+    el('meta').textContent=scopeNames[data.scope]+' · '+stamp(data.before)+' · '+data.machineCount+' 节点 / '+data.configuredEntries+' 入口 · 覆盖 '+Number(data.coveragePercent).toFixed(1)+'% · 所选时段已过 '+Number(data.expectedSeconds/3600).toFixed(2)+' 小时 · 图头比例：实际数 / 全空闲理论上限';
     el('meta').title='理论上限假设所选已过时段内全部合格节点始终空闲；各连续时段分别取整，多机按各 B 组可确认成员数独立分组，不跨组，不把未观测当作已空闲。';
-    const problems=[data.storageError&&'历史保存异常：'+data.storageError,data.historyTruncated&&'历史因容量限制裁剪，缺失按未观测处理'].filter(Boolean);
+    const problems=[data.historyAvailable===false&&'该日期无可用的精确窗口历史；升级前未保留的日期无法由小时均值还原',data.storageError&&'历史保存异常：'+data.storageError,data.historyTruncated&&'历史因容量限制裁剪，缺失按未观测处理'].filter(Boolean);
     const excluded=multi?data.machines.filter(row=>row.multiReason).length:0;
     message(problems.length?problems.join('；'):!data.expectedSeconds?'今天尚未进入所选时段。':!data.machines.length?'当前分组没有节点。':multi?'多机为保守可行排布，非最大值；图头是独立实验次数，圆环中心是节点参与次数。'+(excluded?' '+excluded+' 个节点未参与组网，点击查看原因。':''):'五档分别统计，同一档内互不重叠；每张图中心为对应档位窗口个数。',!!problems.length);
     for(const id of ['png','svg','csv'])el(id).disabled=!data.machines.length;
@@ -26,11 +30,11 @@
     const request=++generation;controller?.abort();controller=new AbortController();clear();message('读取'+scopeNames[el('scope').value]+'窗口统计…');
     if(typeof demo!=='undefined'&&demo){message('演示模式没有真实窗口历史；请退出演示。');return;}
     try{
-      const query=new URLSearchParams({scope:el('scope').value,nodes:el('nodes').value});if(el('group').value)query.set('group',el('group').value);
+      const query=new URLSearchParams({scope:el('scope').value,nodes:el('nodes').value});if(el('group').value)query.set('group',el('group').value);if(el('date').value)query.set('date',el('date').value);
       const response=await fetch('/api/availability?'+query,{headers:{'X-Watch-Token':token},signal:controller.signal});
       const data=await response.json();if(!response.ok)throw new Error(data.error||'读取窗口统计失败');
       if(request!==generation||!dialog.open)return;
-      if(data.schema!=='simplehtmlwatch.daily-idle-windows.v1'||!Array.isArray(data.machines)||!data.counts||!scopeNames[data.scope]||Number(data.nodes||1)!==Number(el('nodes').value))throw new Error('窗口统计格式或组网规模无效，请更新服务');
+      if(data.schema!=='simplehtmlwatch.daily-idle-windows.v1'||!Array.isArray(data.machines)||!data.counts||!scopeNames[data.scope]||Number(data.nodes||1)!==Number(el('nodes').value)||(el('date').value&&data.date!==el('date').value))throw new Error('窗口统计格式或组网规模无效，请更新服务');
       snapshot=data;render();
     }catch(error){if(error.name!=='AbortError'&&request===generation){clear();message(error.message,true);}}
   }
@@ -46,7 +50,7 @@
   };
   el('close').onclick=()=>dialog.close();
   dialog.addEventListener('close',()=>{generation++;controller?.abort();clearInterval(timer);timer=null;clear();});
-  el('refresh').onclick=load;el('group').onchange=load;el('scope').onchange=load;el('nodes').onchange=load;
+  el('date').onchange=()=>{el('group').value='';load();};el('refresh').onclick=load;el('group').onchange=load;el('scope').onchange=load;el('nodes').onchange=load;
   function openDetail(target){
     const tile=target.closest('[data-node-resource]');if(!tile||!snapshot)return;
     detailSelection={resource:tile.dataset.nodeResource,minutes:Number(tile.dataset.nodeDuration)};renderDetail();detail.showModal();
@@ -87,6 +91,7 @@
     for(const r of snapshot.machines)rows.push([day,scopeNames[snapshot.scope],snapshot.nodes||1,multi?'节点参与次数':'独立空闲窗',r.resourceKey,r.name,r.pool||r.group,r.counts.minutes120,r.counts.minutes60,r.counts.minutes30,r.counts.minutes15,r.counts.minutes5,r.longestIdleSeconds,r.idleSeconds,r.busySeconds,r.unknownSeconds,r.coveragePercent]);
     rows.push([day,scopeNames[snapshot.scope],snapshot.nodes||1,multi?'独立组网实验窗':'独立空闲窗','TOTAL','全体汇总','',...durations.map(d=>snapshot.counts[d.key])]);
     rows.push([day,scopeNames[snapshot.scope],snapshot.nodes||1,'全空闲理论上限','THEORETICAL','全体汇总','',...durations.map(d=>snapshot.theoreticalCounts?.[d.key]??'')]);
+    rows.push([day,scopeNames[snapshot.scope],snapshot.nodes||1,'实际数占理论上限(%)','PERCENT','全体汇总','',...durations.map(d=>percent(snapshot.counts[d.key],snapshot.theoreticalCounts?.[d.key]))]);
     download(new Blob(['\uFEFF'+rows.map(r=>r.map(quote).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}),'csv',day,snapshot.scope,snapshot.nodes||1);
   };
   (async()=>{if(await window.watchReady){const params=new URLSearchParams(location.search);if(!params.has('tasks')&&params.get('demo')!=='1')el('btn').click();}})();

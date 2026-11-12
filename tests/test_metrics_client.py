@@ -145,6 +145,18 @@ class SummaryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"nodes"):
             metricsctl.run(args,fake)
 
+    def test_availability_historical_date_is_fenced(self):
+        fake=unittest.mock.Mock()
+        args=argparse.Namespace(action="availability",group="",scope="all",nodes=1,date="2026-11-10")
+        fake.api.return_value={"schema":"simplehtmlwatch.daily-idle-windows.v1","date":"2026-11-10","machines":[],"historyAvailable":False}
+        output,code=metricsctl.run(args,fake)
+        self.assertEqual(code,3)
+        self.assertIn("date=2026-11-10",fake.api.call_args[0][0])
+        fake.api.return_value["date"]="2026-11-11"
+        with self.assertRaisesRegex(ValueError,"历史日期"):metricsctl.run(args,fake)
+        args.date="2026-1-1"
+        with self.assertRaisesRegex(ValueError,"日期格式"):metricsctl.run(args,fake)
+
     def test_availability_scope_and_partial_history(self):
         fake = unittest.mock.Mock()
         args = argparse.Namespace(action="availability", group="A5 B01", scope="work")

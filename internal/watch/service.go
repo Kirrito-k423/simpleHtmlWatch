@@ -261,6 +261,7 @@ func AcquireService(dir, instance, version string, port int, explicitPort, adopt
 	info.Capabilities = append(info.Capabilities, "upgrade-backup-archive-v1")
 	info.Capabilities = append(info.Capabilities, availabilityCapability)
 	info.Capabilities = append(info.Capabilities, availabilityMultiCapability)
+	info.Capabilities = append(info.Capabilities, availabilityHistoryCapability)
 	success = true
 	return &ServiceLease{Info: info, Listener: listener, unlock: unlock}, nil, nil
 }

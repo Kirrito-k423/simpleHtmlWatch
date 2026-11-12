@@ -8,7 +8,7 @@
   function clear(){snapshot=null;el('chart').replaceChildren();el('meta').textContent='';for(const id of ['png','svg','csv'])el(id).disabled=true;if(detail.open)detail.close();detailSelection=null;}
   function draw(){
     if(!snapshot||!dialog.open)return;
-    const rect=el('chart').getBoundingClientRect();el('chart').innerHTML=charts.render(snapshot,{width:rect.width,height:rect.height});
+    const rect=el('chart').getBoundingClientRect();el('chart').innerHTML=charts.render(snapshot,{width:rect.width,height:rect.height,sortIdle:el('sort').checked});
   }
   function queueDraw(){if(frame!=null)cancelAnimationFrame(frame);frame=requestAnimationFrame(()=>{frame=null;draw();});}
   const observer=new ResizeObserver(queueDraw);observer.observe(el('chart'));
@@ -50,6 +50,7 @@
   };
   el('close').onclick=()=>dialog.close();
   dialog.addEventListener('close',()=>{generation++;controller?.abort();clearInterval(timer);timer=null;clear();});
+  el('sort').onchange=queueDraw;
   el('date').onchange=()=>{el('group').value='';load();};el('refresh').onclick=load;el('group').onchange=load;el('scope').onchange=load;el('nodes').onchange=load;
   function openDetail(target){
     const tile=target.closest('[data-node-resource]');if(!tile||!snapshot)return;
@@ -76,9 +77,9 @@
   el('chart').onkeydown=event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();openDetail(event.target);}};
   el('detail-close').onclick=()=>detail.close();detail.addEventListener('close',()=>{detailSelection=null;el('detail-body').replaceChildren();});
   function download(blob,ext,day,scope,nodes){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='machine-idle-windows-'+nodes+'nodes-'+scope+'-'+day+'.'+ext;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
-  el('svg').onclick=()=>{if(snapshot)download(new Blob([charts.render(snapshot)],{type:'image/svg+xml;charset=utf-8'}),'svg',stamp(snapshot.after).slice(0,10),snapshot.scope,snapshot.nodes||1);};
+  el('svg').onclick=()=>{if(snapshot)download(new Blob([charts.render(snapshot,{sortIdle:el('sort').checked})],{type:'image/svg+xml;charset=utf-8'}),'svg',stamp(snapshot.after).slice(0,10),snapshot.scope,snapshot.nodes||1);};
   el('png').onclick=async()=>{
-    if(!snapshot)return;const data=snapshot,source=charts.render(data);el('png').disabled=true;
+    if(!snapshot)return;const data=snapshot,source=charts.render(data,{sortIdle:el('sort').checked});el('png').disabled=true;
     try{
       const image=new Image();image.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(source);await image.decode();
       const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;canvas.getContext('2d').drawImage(image,0,0);

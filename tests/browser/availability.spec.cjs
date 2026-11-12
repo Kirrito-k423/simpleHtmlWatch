@@ -76,3 +76,34 @@ test('全屏五图方格：64节点同屏、五档、同组多机、明细和导
 test('任务中台入口保持直接访问，不自动遮挡任务页面',async({page})=>{
   await page.goto('/?tasks=1');await expect(page.locator('#task-panel')).toBeVisible();await expect(page.locator('#availability-dialog')).not.toBeVisible();
 });
+
+test('空闲排序默认开启，各图绿优先黄次之，关闭恢复且导出跟随',async({page})=>{
+  await page.setViewportSize({width:1800,height:1226});
+  let requests=0;
+  await page.route('**/api/availability?*',async route=>{
+    requests++;
+    const q=new URL(route.request().url()).searchParams,data=fixture(q.get('scope'),Number(q.get('nodes')||1),q.get('group'),q.get('date')||'2026-11-11');
+    for(const [index,idle,split] of [[0,0,false],[2,8400,true],[63,7800,false]]){
+      const row=data.machines[index];row.idleSeconds=idle;row.busySeconds=0;row.unknownSeconds=data.expectedSeconds-idle;row.coveragePercent=idle/data.expectedSeconds*100;
+      for(const minutes of [120,60,30,15,5])row.counts['minutes'+minutes]=split?2*Math.floor(idle/2/(minutes*60)):Math.floor(idle/(minutes*60));
+    }
+    for(const key of Object.keys(data.counts))data.counts[key]=data.machines.reduce((n,r)=>n+r.counts[key],0);
+    await route.fulfill({json:data});
+  });
+  await page.goto('/');
+  const toggle=page.locator('#availability-sort'),first=minutes=>page.locator('[data-duration="'+minutes+'"] .availability-node').first();
+  await expect(toggle).toBeChecked();
+  await expect(first(120)).toHaveAttribute('data-node-resource','physical:node-63');
+  await expect(first(30)).toHaveAttribute('data-node-resource','physical:node-02');
+  await expect(page.locator('[data-duration="30"] .availability-node').last()).toHaveAttribute('data-node-resource','physical:node-00');
+  const requestCount=requests;
+  await toggle.uncheck();
+  await expect(first(120)).toHaveAttribute('data-node-resource','physical:node-00');
+  const originalDownload=page.waitForEvent('download');await page.locator('#availability-svg').click();
+  const original=await readFile(await(await originalDownload).path(),'utf8');expect(original).toContain('按节点顺序');expect(original.indexOf('data-node-resource="physical:node-00"')).toBeLessThan(original.indexOf('data-node-resource="physical:node-63"'));
+  await toggle.check();await expect(first(120)).toHaveAttribute('data-node-resource','physical:node-63');
+  const sortedDownload=page.waitForEvent('download');await page.locator('#availability-svg').click();
+  const sorted=await readFile(await(await sortedDownload).path(),'utf8');expect(sorted).toContain('绿优先，黄次之');expect(sorted.indexOf('data-node-resource="physical:node-63"')).toBeLessThan(sorted.indexOf('data-node-resource="physical:node-00"'));
+  expect(requests).toBe(requestCount);
+  await page.locator('#availability-date').selectOption('2026-11-10');await expect(first(30)).toHaveAttribute('data-node-resource','physical:node-02');await expect(toggle).toBeChecked();
+});

@@ -21,3 +21,5 @@
 #availability-detail-body table{width:100%;border-collapse:collapse;margin:12px 0}
 #availability-detail-body th,#availability-detail-body td{text-align:left;padding:8px;border-bottom:1px solid var(--border);vertical-align:top}
 @media(max-width:760px){.availability-dialog .dialog-heading{padding:7px 10px}.availability-dialog .dialog-heading h2{font-size:15px}.availability-body{padding:4px}.availability-controls{gap:4px}.availability-controls button,.availability-controls select{padding:3px 5px;font-size:10px}}
+
+.availability-controls input[type="checkbox"]{width:14px;height:14px;padding:0;margin:0;accent-color:#32b783}

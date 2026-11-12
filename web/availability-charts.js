@@ -25,7 +25,8 @@
     names.forEach((name,i)=>{const x=legendX+i*legendStep;svg+='<circle cx="'+x+'" cy="'+(legendY-3)+'" r="4" fill="'+colors[i]+'"/>'+text(x+9,legendY,name,width<700?8:10,'#a9b7ca');});
     durations.forEach((duration,panel)=>{
       const x=padding+panel*(panelWidth+gap),y=top,spaceWidth=panelWidth-12,spaceHeight=panelHeight-58;
-      svg+='<g class="availability-duration" data-duration="'+duration.minutes+'" role="group" aria-label="'+duration.label+'窗口图"><rect x="'+num(x)+'" y="'+y+'" width="'+num(panelWidth)+'" height="'+num(panelHeight)+'" rx="7" fill="#121c28" stroke="#2b394c"/>'+text(x+10,y+21,duration.label,Math.min(17,panelWidth*.075),'#f1f6ff')+text(x+10,y+39,(multi?'可排布 ':'独立空闲窗 ')+(data.counts[duration.key]||0)+(multi?' 次':' 个'),Math.min(11,panelWidth*.052),'#a7e1c6');
+      const capacity=data.theoreticalCounts?.[duration.key]??'—';
+      svg+='<g class="availability-duration" data-duration="'+duration.minutes+'" role="group" aria-label="'+duration.label+'窗口图"><rect x="'+num(x)+'" y="'+y+'" width="'+num(panelWidth)+'" height="'+num(panelHeight)+'" rx="7" fill="#121c28" stroke="#2b394c"/>'+text(x+10,y+21,duration.label,Math.min(17,panelWidth*.075),'#f1f6ff')+text(x+10,y+39,(multi?'可排布 ':'独立空闲窗 ')+(data.counts[duration.key]||0)+' / '+capacity+(multi?' 次':' 个'),Math.min(11,panelWidth*.052),'#a7e1c6');
       if(!rows.length){svg+=text(x+panelWidth/2,y+panelHeight/2,'没有节点',10,'#a9b7ca','text-anchor="middle"')+'</g>';return;}
       const grid=fit(rows.length,spaceWidth,spaceHeight),size=Math.max(1,grid.size),gridWidth=grid.columns*size+(grid.columns-1)*3,gridHeight=grid.rows*size+(grid.rows-1)*3;
       const left=x+(panelWidth-gridWidth)/2,startY=y+49+(spaceHeight-gridHeight)/2;
